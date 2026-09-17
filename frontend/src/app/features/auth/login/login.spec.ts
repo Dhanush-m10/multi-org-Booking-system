@@ -51,7 +51,7 @@ describe('LoginComponent', () => {
     expect(input('login-username')).toBeTruthy();
     expect(input('login-password')).toBeTruthy();
     expect(input('login-password').type).toBe('password');
-    expect(root().textContent).toContain('Sign in to your workspace');
+    expect(root().textContent).toContain('Sign in to your organization workspace');
   });
 
   it('toggles the password between hidden and visible', async () => {

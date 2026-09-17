@@ -92,6 +92,8 @@ src/
 | `core/utils/api-errors.ts`               | Normalises the several error shapes Django emits into one `ApiError` object: HTTP status, human message, `fieldErrors` (per-field 400s) and `nonFieldErrors` (cross-field 400s). `apiErrorMessage()` renders them as readable text.                                                                        |
 | `core/utils/datetime.ts`                 | All date/time handling. **Never** uses `new Date("YYYY-MM-DD")` — that parses as UTC midnight and displays as the previous day west of Greenwich. Dates are parsed by hand instead. Also: weekday maths matching Django's `Mon=0…Sun=6`, `HH:MM` ↔ `HH:MM:SS` conversion, decimal-string price formatting. |
 | `core/utils/lookup.ts`                   | Because every foreign key on the API is a bare integer, this maps id → display name (`customerName`, `staffName`, `serviceName`) and provides the shared client-side search matcher.                                                                                                                       |
+| `core/utils/slots.ts`                    | `computeTimeSlots()` — the bookable-slot grid. Reproduces the backend's working-hours and overlap arithmetic so the picker agrees with the server. Pure and unit-tested.                                                                                                                                   |
+| `core/services/capabilities.service.ts`  | Determines, by observing one real HTTP status, whether the signed-in user may manage services/staff/availability. Drives sidebar filtering and the role label.                                                                                                                                             |
 | `core/services/token.service.ts`         | The **only** file that touches `localStorage`. Stores access token, refresh token and the signed-in user's name. Exposes them as signals so any component can react to auth state without subscribing.                                                                                                     |
 | `core/services/auth.service.ts`          | Login, register, refresh, logout. Register returns **no tokens** (backend behaviour), so the login screen is where tokens are obtained.                                                                                                                                                                    |
 | `core/services/*.service.ts`             | One thin service per API resource: `CatalogService` (categories + services), `StaffService`, `CustomerService`, `AvailabilityService`, `BookingService`, `DashboardService`. Each exposes only the operations the backend actually supports.                                                               |
@@ -128,17 +130,185 @@ toggled from the topbar.
 
 ### `features/` — the pages
 
-| Route                 | Folder                             | What it does                                                                     |
-| --------------------- | ---------------------------------- | -------------------------------------------------------------------------------- |
-| `/login`, `/register` | `features/auth/`                   | Auth forms on a shared branded `auth-layout`.                                    |
-| `/dashboard`          | `features/dashboard/`              | Live metrics computed from real records.                                         |
-| `/bookings`           | `features/bookings/bookings-page`  | Search + status/date filters, list and day views, create dialog, status actions. |
-| `/bookings/:id`       | `features/bookings/booking-detail` | One booking, full status transitions, inline notes editing.                      |
-| `/services`           | `features/services/`               | Categories and services.                                                         |
-| `/staff`              | `features/staff/`                  | Staff with multi-select service assignment.                                      |
-| `/availability`       | `features/availability/`           | Working hours for the 7 weekdays.                                                |
-| `/customers`          | `features/customers/`              | Customer directory.                                                              |
-| anything else         | `features/not-found/`              | 404 page.                                                                        |
+| Route                             | Folder                             | What it does                                                                                                    |
+| --------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| `/login`, `/register`             | `features/auth/`                   | Auth forms on a shared branded `auth-layout`.                                                                   |
+| `/dashboard`                      | `features/dashboard/`              | Live metrics computed from real records.                                                                        |
+| `/bookings`                       | `features/bookings/bookings-page`  | Search + status/date filters, list and day views, create dialog, status actions.                                |
+| `/bookings/:id`                   | `features/bookings/booking-detail` | One booking, full status transitions, inline notes editing.                                                     |
+| `/services`                       | `features/services/`               | Categories and services.                                                                                        |
+| `/staff`                          | `features/staff/`                  | Staff with multi-select service assignment.                                                                     |
+| `/availability`                   | `features/availability/`           | Working hours for the 7 weekdays.                                                                               |
+| `/customers`                      | `features/customers/`              | Customer directory.                                                                                             |
+| `/book/:organizationSlug[/:step]` | `features/public/`                 | Customer booking portal — public, outside the shell, currently an honest "not available yet" state (see below). |
+| anything else                     | `features/not-found/`              | 404 page.                                                                                                       |
+
+---
+
+## Two experiences
+
+The application is two structurally separate things that share a design system.
+
+**1. Organization management portal** — `/login`, `/register`, `/dashboard`,
+`/bookings`, `/customers`, `/services`, `/staff`, `/availability`. Authenticated,
+rendered inside `AppShell` (sidebar + topbar). The login screen reads
+_"Sign in to your organization workspace"_ — a Django `User` authenticates and
+belongs to an organization through its `OrganizationMembership`; the user is not
+"logging into an organization".
+
+**2. Customer booking portal** — `/book`, `/book/:organizationSlug`,
+`/book/:organizationSlug/:step`. Public, deliberately **outside** `AppShell`: no
+sidebar, no dashboard, no management chrome. It never shows staff management,
+service management, customer management or availability management.
+
+`features/public/public-booking.component.ts` is where the customer portal lives.
+It currently renders an honest "not available yet" state — no mock services, no
+sample times, no invented endpoints — because the four backend capabilities it
+needs do not exist. See _Customer booking portal: backend requirements_ below.
+
+---
+
+## Roles and permissions
+
+The backend splits its permissions in two, and the frontend follows that split
+rather than papering over it:
+
+| Endpoint                  | Permission            | ADMIN |  STAFF  | Anonymous |
+| ------------------------- | --------------------- | :---: | :-----: | :-------: |
+| `GET /api/bookings/`      | `IsOrganizationStaff` |  200  |   200   |    401    |
+| `GET /api/bookings/<id>/` | `IsOrganizationStaff` |  200  |   200   |    401    |
+| `GET /api/customers/`     | `IsOrganizationStaff` |  200  |   200   |    401    |
+| `GET /api/categories/`    | `IsOrganizationAdmin` |  200  | **403** |    401    |
+| `GET /api/services/`      | `IsOrganizationAdmin` |  200  | **403** |    401    |
+| `GET /api/staff/`         | `IsOrganizationAdmin` |  200  | **403** |    401    |
+| `GET /api/working-hours/` | `IsOrganizationAdmin` |  200  | **403** |    401    |
+
+(Verified against the running API with a real `STAFF`-role member.)
+
+Two consequences the UI handles explicitly:
+
+- **Navigation is filtered by capability.** `CapabilitiesService` issues one silent
+  `GET /api/services/` and records the status: 200 → may manage the catalogue,
+  403 → may not. Services, Staff and Availability disappear from the sidebar for a
+  STAFF member instead of leading to three screens that can only error. This is an
+  _inference from real HTTP responses_, used only to choose which links to render.
+  It is not a security boundary — the backend re-checks every request.
+- **The bookings page degrades instead of failing.** It loads bookings and
+  customers (readable by any member) plus services, staff and working hours
+  (admin-only) in one `forkJoin`. The admin-only three are wrapped in `catchError`,
+  so a 403 yields an empty list and a banner rather than taking the whole screen
+  down. Without that, a STAFF member would see a hard error on a page they are
+  entitled to use.
+
+The sidebar's role line is derived the same way. It previously hard-coded
+"Organization admin", which was simply false for a STAFF member; it now reads
+`Organization admin` / `Organization staff` / `Workspace member` while the probe
+is pending.
+
+**The organization name cannot be displayed.** There is no `/api/me`, no
+organization endpoint of any kind (`organizations/views.py` is empty and the app
+has no `urls.py`), the JWT payload is only
+`{token_type, exp, iat, jti, user_id}`, and every record exposes `organization`
+as a bare integer id. So a header like "ABC Clinic / Welcome back, Dhanush" is
+not achievable without a backend change, and the UI shows only the signed-in
+username rather than inventing a name.
+
+---
+
+## Customer booking portal: backend requirements
+
+None of the following exist today. They are documented, not worked around.
+
+**1. Public organization lookup**
+`Organization` has `name, email, phone, address, created_at` — **no `slug`**. There
+is no `organizations/urls.py` and `organizations/views.py` is empty, so no
+organization endpoint exists at all (confirmed: `/api/organizations/` → 404 even
+when authenticated). Required:
+
+```
+Organization.slug = models.SlugField(max_length=100, unique=True)   # + migration
+GET /api/public/organizations/<slug>/     AllowAny
+    -> { name, address, phone, email }    (no member or customer data)
+GET /api/public/organizations/<slug>/services/    AllowAny, is_active=True only
+GET /api/public/organizations/<slug>/staff/       AllowAny, is_active=True only
+GET /api/public/organizations/<slug>/availability/ AllowAny, is_available=True only
+```
+
+Until a slug exists, `/book/abc-clinic` cannot be resolved to an organization. The
+frontend never lets a visitor submit an arbitrary organization id.
+
+**2. Unauthenticated read access**
+`DEFAULT_PERMISSION_CLASSES` is `IsAuthenticated` and every view sets an
+organization permission, so a tokenless request gets 401 from every resource
+endpoint. Public read-only views (above) are required before a visitor can see
+anything.
+
+**3. Customer authentication**
+`customers.Customer` is `organization + name + email + phone` with **no `User`
+foreign key**, and `OrganizationMembership.Role` is only `ADMIN | STAFF`. There is
+no customer account, login or registration. Required:
+
+- `Customer.user = OneToOneField(User, null=True)` **or** a separate
+  `CustomerAccount` model, plus a `CUSTOMER` role / a distinct permission class
+- `POST /api/auth/customer/register/` — email + password, creating a `User` linked
+  to a `Customer`
+- `POST /api/auth/customer/login/` — token pair
+- authorization that scopes a customer to _their own_ bookings only, never to the
+  organization's other customers
+
+**4. Customer booking permission**
+`BookingListCreateView.permission_classes = [IsOrganizationStaff]`. A customer
+cannot create a booking through the existing API, and this is stated plainly:
+
+> Customer booking requires a backend endpoint/permission model because the
+> current booking API requires `IsOrganizationStaff`.
+
+A public booking endpoint would also need its own validation (the current
+serializer takes `organization` from the authenticated user's membership, which a
+customer would not have) and its own rate limiting.
+
+**Guest booking without login** is blocked by the same thing: there is no
+permission class under which an anonymous caller may create a `Booking`. A
+frontend-only workaround is not implemented and should not be.
+
+---
+
+## Booking creation flow
+
+`features/bookings/booking-form.component.ts` runs the dependencies in the order
+they actually occur:
+
+```
+Service  ->  compatible staff  ->  date  ->  available time  ->  customer  ->  confirm
+```
+
+- **Service** decides who can perform it and how long it takes.
+- **Staff** is narrowed to active members whose `services` array contains the
+  chosen service — the same rule `BookingSerializer.validate()` enforces. Capable
+  but inactive staff are named rather than silently hidden.
+- **Date** decides the weekday, and therefore which `WorkingHours` row applies.
+- **Available time** is a slot grid produced by `core/utils/slots.ts`.
+- **Customer** is independent, so it comes last.
+- **`end_time` is never an input and never sent.** It is shown read-only as
+  `start + duration_minutes`, which is exactly how the server derives it.
+
+`computeTimeSlots()` reproduces the backend arithmetic so the picker and the
+server agree:
+
+```
+working hours : valid    <=>  start >= wh.start_time  AND  end <= wh.end_time
+overlap       : conflict <=>  start < booking.end_time AND end > booking.start_time
+                over bookings for the same staff + date, excluding CANCELLED
+```
+
+Cross-checked against the live API for a 30-minute service inside 09:00–17:00 with
+an existing 09:00–09:30 booking: `09:00` and `09:15` rejected (400), `09:30`
+accepted (201, touching is not overlapping), `16:30` accepted as the last valid
+start, `16:45` and `08:45` rejected. Covered by 11 unit tests.
+
+This is a convenience, not an authority. The server re-validates on submit and its
+message is surfaced verbatim — including for a slot someone else took in the
+meantime.
 
 ---
 

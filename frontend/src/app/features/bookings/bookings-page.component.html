@@ -1,7 +1,33 @@
 <app-page-header title="Bookings" subtitle="Every appointment across your organization.">
   <app-button variant="secondary" icon="refresh" (clicked)="load()">Refresh</app-button>
-  <app-button icon="plus" (clicked)="openCreate()">New booking</app-button>
+  <!-- The dialog needs the admin-only service/staff/hours lists to work. -->
+  @if (!degraded()) {
+    <app-button icon="plus" (clicked)="openCreate()">New booking</app-button>
+  }
 </app-page-header>
+
+<!--
+  Shown when an ADMIN-only lookup was refused. Bookings and customers are
+  readable by any organization member, but services, staff and working hours
+  are IsOrganizationAdmin — so a STAFF-role member sees the list with
+  unresolved names and cannot use the create dialog.
+-->
+@if (degraded()) {
+  <div
+    class="mt-5 flex items-start gap-2.5 rounded-xl border border-pending-600/20 bg-pending-50 px-4 py-3"
+    role="status"
+  >
+    <app-icon name="info" class="mt-0.5 size-4 shrink-0 text-pending-700" />
+    <div class="text-sm text-pending-800">
+      <p class="font-medium">Limited view — your account is not an organization admin.</p>
+      <p class="mt-0.5">
+        Bookings are shown, but the service, staff and working-hours lists require admin permission,
+        so some names appear as references and new bookings cannot be created here. Ask an
+        administrator of your organization for the change, or sign in with an admin account.
+      </p>
+    </div>
+  </div>
+}
 
 <!-- ============================== Filters ============================== -->
 <div class="mt-5 space-y-3">
@@ -405,6 +431,8 @@
     [customers]="customers()"
     [services]="services()"
     [staff]="staff()"
+    [bookings]="bookings()"
+    [workingHours]="workingHours()"
     [saving]="saving()"
     [formError]="createError()"
     [fieldErrors]="createFieldErrors()"

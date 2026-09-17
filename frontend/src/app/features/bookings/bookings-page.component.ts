@@ -1,7 +1,8 @@
 import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@angular/core';
 import { ActivatedRoute, Router, RouterLink } from '@angular/router';
-import { forkJoin } from 'rxjs';
+import { Observable, catchError, forkJoin, of } from 'rxjs';
 
+import { AvailabilityService } from '../../core/services/availability.service';
 import { BOOKING_STATUS_ACTIONS, BookingService } from '../../core/services/booking.service';
 import { CatalogService } from '../../core/services/catalog.service';
 import { ConfirmService } from '../../core/services/confirm.service';
@@ -15,6 +16,7 @@ import type {
   Customer,
   Service,
   Staff,
+  WorkingHours,
 } from '../../core/models/api.models';
 import { apiErrorMessage, toApiError } from '../../core/utils/api-errors';
 import {
@@ -90,6 +92,7 @@ export class BookingsPageComponent {
   private readonly customerService = inject(CustomerService);
   private readonly catalog = inject(CatalogService);
   private readonly staffService = inject(StaffService);
+  private readonly availabilityService = inject(AvailabilityService);
   private readonly toast = inject(ToastService);
   private readonly confirm = inject(ConfirmService);
   private readonly route = inject(ActivatedRoute);
@@ -102,6 +105,15 @@ export class BookingsPageComponent {
   protected readonly customers = signal<Customer[]>([]);
   protected readonly services = signal<Service[]>([]);
   protected readonly staff = signal<Staff[]>([]);
+  protected readonly workingHours = signal<WorkingHours[]>([]);
+
+  /**
+   * True when an ADMIN-only lookup (services / staff / working-hours) was
+   * refused. Bookings and customers are readable by any organization member,
+   * so the list still renders — but names resolve to placeholders and the
+   * create dialog cannot work. Shown as a banner rather than failing the page.
+   */
+  protected readonly degraded = signal(false);
 
   /* --------------------------------- filters -------------------------------- */
 
@@ -163,17 +175,36 @@ export class BookingsPageComponent {
     this.loading.set(true);
     this.error.set(null);
 
+    let refusedLookup = false;
+
+    /**
+     * services, staff and working-hours are `IsOrganizationAdmin` on the
+     * backend. A STAFF-role member gets 403, and inside `forkJoin` one error
+     * would sink the whole screen — including the bookings they ARE allowed to
+     * see. So these three degrade to an empty list instead.
+     */
+    const tolerateAdminOnly = <T>(source: Observable<T[]>) =>
+      source.pipe(
+        catchError(() => {
+          refusedLookup = true;
+          return of([] as T[]);
+        }),
+      );
+
     forkJoin({
       bookings: this.bookingService.getAll(),
       customers: this.customerService.getAll(),
-      services: this.catalog.getServices(),
-      staff: this.staffService.getAll(),
+      services: tolerateAdminOnly(this.catalog.getServices()),
+      staff: tolerateAdminOnly(this.staffService.getAll()),
+      workingHours: tolerateAdminOnly(this.availabilityService.getAll()),
     }).subscribe({
       next: (result) => {
         this.bookings.set(result.bookings);
         this.customers.set(result.customers);
         this.services.set(result.services);
         this.staff.set(result.staff);
+        this.workingHours.set(result.workingHours);
+        this.degraded.set(refusedLookup);
         this.loading.set(false);
       },
       error: (err: unknown) => {

@@ -10,8 +10,9 @@ import { takeUntilDestroyed } from '@angular/core/rxjs-interop';
 import { NavigationEnd, Router, RouterOutlet, type ActivatedRoute } from '@angular/router';
 import { filter } from 'rxjs';
 
-import { ConfirmService } from '../core/services/confirm.service';
 import { AuthService } from '../core/services/auth.service';
+import { CapabilitiesService } from '../core/services/capabilities.service';
+import { ConfirmService } from '../core/services/confirm.service';
 import { initials } from '../core/utils/datetime';
 import { ConfirmHostComponent } from '../shared/components/confirm-host.component';
 import { ToastHostComponent } from '../shared/components/toast-host.component';
@@ -43,6 +44,7 @@ import { TopbarComponent } from './topbar.component';
           [mobileOpen]="mobileOpen()"
           [username]="username()"
           [userInitials]="userInitials()"
+          [roleLabel]="roleLabel()"
           (closed)="mobileOpen.set(false)"
           (logoutRequested)="logout()"
         />
@@ -74,6 +76,7 @@ export class AppShellComponent {
   private readonly router = inject(Router);
   private readonly authService = inject(AuthService);
   private readonly confirmService = inject(ConfirmService);
+  private readonly capabilities = inject(CapabilitiesService);
   private readonly destroyRef = inject(DestroyRef);
 
   protected readonly mobileOpen = signal(false);
@@ -85,6 +88,23 @@ export class AppShellComponent {
   protected readonly username = this.authService.displayName;
   protected readonly userInitials = computed(() => initials(this.username()));
 
+  /**
+   * The user's own username is real data captured at login. Their ROLE is not
+   * in the JWT and there is no /api/me, so it is reported from the capability
+   * probe — and until that answers, nothing is claimed. The organization name
+   * is deliberately absent: no endpoint exposes it (see CapabilitiesService).
+   */
+  protected readonly roleLabel = computed(() => {
+    switch (this.capabilities.canManageCatalogue()) {
+      case true:
+        return 'Organization admin';
+      case false:
+        return 'Organization staff';
+      default:
+        return 'Workspace member';
+    }
+  });
+
   protected readonly today = new Intl.DateTimeFormat('en-GB', {
     weekday: 'short',
     day: 'numeric',
@@ -93,6 +113,10 @@ export class AppShellComponent {
   }).format(new Date());
 
   constructor() {
+    // Determine once per session whether this user may manage the catalogue, so
+    // the sidebar does not offer a STAFF member three screens that only 403.
+    this.capabilities.probe();
+
     // Keep the header in sync with the active route, and close the mobile drawer
     // whenever navigation happens.
     this.router.events
@@ -136,6 +160,8 @@ export class AppShellComponent {
       .subscribe((confirmed) => {
         if (confirmed) {
           this.authService.logout();
+          // Next user may hold a different role.
+          this.capabilities.reset();
         }
       });
   }

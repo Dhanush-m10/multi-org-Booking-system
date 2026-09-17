@@ -3,14 +3,23 @@ import { Routes } from '@angular/router';
 import { authGuard, guestGuard } from './core/guards/auth.guard';
 
 /**
- * Application routes.
+ * Application routes — TWO separate experiences.
  *
- *   /login, /register          public, and hidden from signed-in users
- *   /dashboard, /bookings, ... protected by `authGuard`, rendered in AppShell
+ * 1. ORGANIZATION MANAGEMENT PORTAL (authenticated ADMIN / STAFF)
+ *      /login, /register          public, hidden from signed-in users
+ *      /dashboard, /bookings,
+ *      /customers, /services,
+ *      /staff, /availability      protected by `authGuard`, rendered in AppShell
  *
- * Every protected screen is lazy-loaded, so the initial bundle only contains
- * the shell + login. Each route carries `data.title` / `data.subtitle`, which
- * the top bar and the document `<title>` both read.
+ * 2. CUSTOMER BOOKING PORTAL (public)
+ *      /book/:organizationSlug[/:step]
+ *    Deliberately outside AppShell: no sidebar, no dashboard, no management
+ *    chrome. See `features/public/public-booking.component.ts` for why it
+ *    currently renders a "not available yet" state instead of data.
+ *
+ * Every screen is lazy-loaded, so the initial bundle only contains the shell +
+ * login. Each route carries `data.title` / `data.subtitle`, which the top bar
+ * and the document `<title>` both read.
  */
 export const routes: Routes = [
   {
@@ -88,6 +97,27 @@ export const routes: Routes = [
         data: { title: 'Availability', subtitle: 'Working hours per staff member' },
       },
     ],
+  },
+  /* ------------------------------------------------------------------------ */
+  /* Customer booking portal (public, no shell, no organization data)          */
+  /* ------------------------------------------------------------------------ */
+  {
+    path: 'book',
+    loadComponent: () =>
+      import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
+    data: { title: 'Book an appointment', chromeless: true },
+  },
+  {
+    path: 'book/:organizationSlug',
+    loadComponent: () =>
+      import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
+    data: { title: 'Book an appointment', chromeless: true },
+  },
+  {
+    path: 'book/:organizationSlug/:step',
+    loadComponent: () =>
+      import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
+    data: { title: 'Book an appointment', chromeless: true },
   },
   {
     path: '**',

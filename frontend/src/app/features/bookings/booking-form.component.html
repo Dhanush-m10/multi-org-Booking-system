@@ -1,4 +1,4 @@
-<form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4" novalidate>
+<form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-5" novalidate>
   <!-- Backend errors that are not attached to one field, e.g. overlaps -->
   @if (formError(); as message) {
     <div
@@ -32,25 +32,7 @@
     </div>
   }
 
-  <app-field
-    label="Customer"
-    for="booking-customer"
-    [error]="fieldError('customer')"
-    [required]="true"
-  >
-    <select
-      id="booking-customer"
-      formControlName="customer"
-      class="form-control"
-      [class.form-control-invalid]="fieldError('customer')"
-    >
-      <option [ngValue]="null">Select a customer</option>
-      @for (customer of customers(); track customer.id) {
-        <option [ngValue]="customer.id">{{ customer.name }}</option>
-      }
-    </select>
-  </app-field>
-
+  <!-- ======================= 1. Service ======================= -->
   <app-field
     label="Service"
     for="booking-service"
@@ -58,8 +40,9 @@
       selectedService()
         ? formatDuration(selectedService()!.duration_minutes) +
           ' · ' +
-          formatPrice(selectedService()!.price)
-        : 'Only active services are listed.'
+          formatPrice(selectedService()!.price) +
+          ' — end time is calculated from the duration'
+        : 'The service decides who can perform it and how long it runs'
     "
     [error]="fieldError('service')"
     [required]="true"
@@ -71,22 +54,25 @@
       [class.form-control-invalid]="fieldError('service')"
       (change)="onServiceChange($any($event.target).value)"
     >
-      <option [ngValue]="null">Select a service</option>
+      <option [ngValue]="null">Choose a service</option>
       @for (service of bookableServices(); track service.id) {
         <option [ngValue]="service.id">
-          {{ service.name }} · {{ formatDuration(service.duration_minutes) }}
+          {{ service.name }} — {{ formatDuration(service.duration_minutes) }}
         </option>
       }
     </select>
   </app-field>
 
+  <!-- ================= 2. Compatible staff ================= -->
   <app-field
     label="Staff member"
     for="booking-staff"
     [hint]="
       selectedServiceId() === null
-        ? 'Choose a service first.'
-        : 'Only staff who perform the selected service are listed.'
+        ? 'Choose a service first — only staff who perform it are listed.'
+        : availableStaff().length === 1
+          ? 'Only staff who perform the selected service are listed.'
+          : availableStaff().length + ' staff members perform the selected service.'
     "
     [error]="fieldError('staff')"
     [required]="true"
@@ -97,6 +83,7 @@
       class="form-control"
       [class.form-control-invalid]="fieldError('staff')"
       [disabled]="selectedServiceId() === null"
+      (change)="onStaffChange($any($event.target).value)"
     >
       <option [ngValue]="null">
         {{ selectedServiceId() === null ? 'Choose a service first' : 'Select a staff member' }}
@@ -110,26 +97,29 @@
   </app-field>
 
   @if (selectedServiceId() !== null && availableStaff().length === 0) {
-    <p class="flex items-start gap-1.5 text-sm text-pending-700">
-      <app-icon name="alert" class="mt-0.5 size-3.5 shrink-0" />
-      <span>
-        No active staff member performs this service
-        @if (inactiveCapableStaff().length > 0) {
-          <span>
-            ({{ inactiveCapableStaff().length }} inactive
-            {{ inactiveCapableStaff().length === 1 ? 'person does' : 'people do' }})
-          </span>
+    <p class="-mt-2 text-sm text-slate-600">
+      No active staff member performs this service.
+      @if (inactiveCapableStaff().length > 0) {
+        {{
+          inactiveCapableStaff().length === 1
+            ? 'One staff member is'
+            : inactiveCapableStaff().length + ' staff members are'
+        }}
+        assigned but inactive:
+        @for (member of inactiveCapableStaff(); track member.id; let last = $last) {
+          <span class="font-medium text-slate-800">{{ member.name }}</span
+          >{{ last ? '.' : ', ' }}
         }
-        . Assign it to someone on the Staff page.
-      </span>
+      }
     </p>
   }
 
+  <!-- ======================= 3. Date ======================= -->
   <div class="grid gap-4 sm:grid-cols-2">
     <app-field
       label="Date"
       for="booking-date"
-      hint="Past dates are rejected by the backend."
+      [hint]="selectedWeekdayLabel() ?? 'Bookings cannot be in the past'"
       [error]="fieldError('booking_date')"
       [required]="true"
     >
@@ -137,74 +127,144 @@
         id="booking-date"
         type="date"
         formControlName="booking_date"
-        [min]="today"
-        class="form-control tabular-nums"
+        class="form-control"
         [class.form-control-invalid]="fieldError('booking_date')"
+        [min]="today"
+        [value]="selectedDate()"
+        (change)="onDateChange($any($event.target).value)"
       />
     </app-field>
 
+    <!-- Read-only: the server derives end_time from the service duration. -->
     <app-field
-      label="Start time"
-      for="booking-start"
-      [error]="fieldError('start_time')"
-      [required]="true"
+      label="Ends at"
+      for="booking-end-preview"
+      hint="Calculated from the service duration"
     >
       <input
-        id="booking-start"
-        type="time"
-        formControlName="start_time"
-        step="900"
-        class="form-control tabular-nums"
-        [class.form-control-invalid]="fieldError('start_time')"
-        (input)="onStartTimeChange($any($event.target).value)"
+        id="booking-end-preview"
+        type="text"
+        class="form-control bg-slate-50 text-slate-500"
+        readonly
+        tabindex="-1"
+        aria-readonly="true"
+        [value]="projectedEnd() ?? '—'"
       />
     </app-field>
   </div>
 
-  <!-- End time is computed by the backend from the service duration -->
-  <div class="flex items-start gap-2.5 rounded-lg border border-slate-200 bg-slate-50 px-3.5 py-3">
-    <app-icon name="clock" class="mt-0.5 size-4 shrink-0 text-slate-400" />
-    <p class="text-sm text-slate-600">
-      @if (projectedEnd(); as endTime) {
-        Ends at
-        <span class="font-medium text-slate-900 tabular-nums">{{ endTime }}</span>
-        — calculated by the server from the
-        {{ formatDuration(selectedService()?.duration_minutes) }} duration.
-      } @else {
-        The end time is calculated automatically from the service duration.
-      }
-    </p>
-  </div>
+  <!-- ==================== 4. Available time ==================== -->
+  <fieldset class="min-w-0">
+    <legend class="text-sm font-medium text-slate-700">
+      Available times
+      <span class="text-slate-400" aria-hidden="true">*(required)</span>
+    </legend>
 
+    @if (!canComputeSlots()) {
+      <p class="mt-1.5 text-sm text-slate-500">
+        Choose a service and a staff member to see their open slots.
+      </p>
+    } @else if (!workingHoursForSelection()) {
+      <p class="mt-1.5 text-sm text-slate-600">
+        {{ selectedStaff()?.name ?? 'This staff member' }} has no working hours set for
+        {{ selectedWeekdayLabel() ?? 'that day' }}. Add them on the Availability page.
+      </p>
+    } @else if (workingHoursForSelection()?.is_available === false) {
+      <p class="mt-1.5 text-sm text-slate-600">
+        {{ selectedStaff()?.name }} is marked unavailable on {{ selectedWeekdayLabel() }}.
+      </p>
+    } @else if (slots().length === 0) {
+      <p class="mt-1.5 text-sm text-slate-600">
+        No slot on {{ selectedWeekdayLabel() }} fits a
+        {{ formatDuration(selectedService()!.duration_minutes) }} appointment between
+        {{ workingHoursForSelection()!.start_time.slice(0, 5) }} and
+        {{ workingHoursForSelection()!.end_time.slice(0, 5) }}.
+      </p>
+    } @else {
+      <p class="mt-1 text-sm text-slate-500">
+        {{ openSlots() }} of {{ slots().length }} slots are free
+        {{ selectedDate() === today ? '(times that have already passed are hidden)' : '' }}. The
+        server re-checks availability when you save.
+      </p>
+
+      <div class="mt-2.5 grid grid-cols-3 gap-2 sm:grid-cols-4 md:grid-cols-6">
+        @for (slot of slots(); track slot.start) {
+          <button
+            type="button"
+            class="rounded-lg border px-2 py-2 text-center text-sm transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+            [class]="
+              slot.start === selectedSlot()
+                ? 'border-brand-600 bg-brand-600 font-medium text-white'
+                : slot.available
+                  ? 'border-slate-300 bg-white text-slate-700 hover:border-brand-400 hover:bg-brand-50'
+                  : 'cursor-not-allowed border-slate-200 bg-slate-50 text-slate-400 line-through'
+            "
+            [disabled]="!slot.available"
+            [attr.aria-pressed]="slot.start === selectedSlot()"
+            [attr.title]="
+              slot.available
+                ? slot.start + '–' + slot.end
+                : 'Already booked ' + slot.start + '–' + slot.end
+            "
+            (click)="chooseSlot(slot.start)"
+          >
+            {{ slot.start }}
+            @if (!slot.available) {
+              <span class="sr-only">(booked)</span>
+            }
+          </button>
+        }
+      </div>
+    }
+
+    @if (fieldError('start_time'); as message) {
+      <p class="mt-1.5 text-sm text-danger-700" role="alert">{{ message }}</p>
+    }
+
+    <!-- Keeps the chosen slot in the form model without adding a second input. -->
+    <input type="hidden" formControlName="start_time" />
+  </fieldset>
+
+  <!-- ==================== 5. Customer details ==================== -->
+  <app-field
+    label="Customer"
+    for="booking-customer"
+    hint="Customers are added on the Customers page"
+    [error]="fieldError('customer')"
+    [required]="true"
+  >
+    <select
+      id="booking-customer"
+      formControlName="customer"
+      class="form-control"
+      [class.form-control-invalid]="fieldError('customer')"
+    >
+      <option [ngValue]="null">Select a customer</option>
+      @for (customer of customers(); track customer.id) {
+        <option [ngValue]="customer.id">
+          {{ customer.name }}{{ customer.phone ? ' · ' + customer.phone : '' }}
+        </option>
+      }
+    </select>
+  </app-field>
+
+  <!-- ==================== 6. Notes / confirm ==================== -->
   <app-field label="Notes" for="booking-notes" hint="Optional. Visible to your team only.">
     <textarea
       id="booking-notes"
       formControlName="notes"
-      rows="3"
-      placeholder="First visit, prefers a quiet chair…"
+      rows="2"
       class="form-control resize-y"
+      placeholder="Anything the team should know"
     ></textarea>
   </app-field>
 
-  @if (nonFieldError(); as message) {
-    <p class="flex items-start gap-1.5 text-sm text-danger-700" role="alert">
-      <app-icon name="alert" class="mt-0.5 size-3.5 shrink-0" />
-      {{ message }}
-    </p>
-  }
-
-  <!-- The host modal runs with showFooter=false, so the actions live here. -->
   <div
     class="flex flex-col-reverse gap-2 border-t border-slate-200 pt-4 sm:flex-row sm:justify-end"
   >
-    <app-button
-      type="button"
-      variant="secondary"
-      [disabled]="saving()"
-      (clicked)="cancelled.emit()"
-    >
-      Cancel
+    <app-button type="button" variant="ghost" (click)="cancelled.emit()">Cancel</app-button>
+    <app-button type="submit" [loading]="saving()" [disabled]="saving()">
+      Create booking
     </app-button>
-    <app-button type="submit" [loading]="saving()">Create booking</app-button>
   </div>
 </form>

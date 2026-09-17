@@ -1,6 +1,7 @@
-import { ChangeDetectionStrategy, Component, input, output } from '@angular/core';
+import { ChangeDetectionStrategy, Component, computed, inject, input, output } from '@angular/core';
 import { RouterLink, RouterLinkActive } from '@angular/router';
 
+import { CapabilitiesService } from '../core/services/capabilities.service';
 import { IconComponent, type IconName } from '../shared/components/icon.component';
 
 /**
@@ -19,15 +20,28 @@ interface NavItem {
   icon: IconName;
   /** One-line description shown under the label on desktop. */
   hint: string;
+  /**
+   * Hidden from users who cannot use the screen. Services, Staff and
+   * Availability are `IsOrganizationAdmin` on the backend, so a STAFF-role
+   * member would only ever see a 403 there. Hiding the link is a courtesy, not
+   * a security measure — the backend enforces it regardless.
+   */
+  adminOnly?: boolean;
 }
 
 const NAV: NavItem[] = [
   { label: 'Dashboard', path: '/dashboard', icon: 'dashboard', hint: 'Overview' },
   { label: 'Bookings', path: '/bookings', icon: 'calendar', hint: 'Appointments' },
   { label: 'Customers', path: '/customers', icon: 'users', hint: 'Client records' },
-  { label: 'Services', path: '/services', icon: 'scissors', hint: 'Catalogue' },
-  { label: 'Staff', path: '/staff', icon: 'user', hint: 'Team members' },
-  { label: 'Availability', path: '/availability', icon: 'clock', hint: 'Working hours' },
+  { label: 'Services', path: '/services', icon: 'scissors', hint: 'Catalogue', adminOnly: true },
+  { label: 'Staff', path: '/staff', icon: 'user', hint: 'Team members', adminOnly: true },
+  {
+    label: 'Availability',
+    path: '/availability',
+    icon: 'clock',
+    hint: 'Working hours',
+    adminOnly: true,
+  },
 ];
 
 @Component({
@@ -81,7 +95,7 @@ const NAV: NavItem[] = [
           Workspace
         </p>
 
-        @for (item of nav; track item.path) {
+        @for (item of nav(); track item.path) {
           <a
             [routerLink]="item.path"
             routerLinkActive
@@ -116,7 +130,14 @@ const NAV: NavItem[] = [
             <p class="truncate text-sm font-medium text-white">
               {{ username() || 'Signed in' }}
             </p>
-            <p class="truncate text-[11px] text-slate-400">Organization admin</p>
+            <!--
+              Derived from the observed capability, never assumed. There is no
+              /api/me and the JWT carries no role, so this reflects what the
+              backend actually allowed (see CapabilitiesService). The
+              organization NAME cannot be shown at all: no endpoint returns it
+              and records expose the organization as a bare integer id.
+            -->
+            <p class="truncate text-[11px] text-slate-400">{{ roleLabel() }}</p>
           </div>
         </div>
 
@@ -137,11 +158,25 @@ export class SidebarComponent {
   readonly mobileOpen = input(false);
   readonly username = input('');
   readonly userInitials = input('?');
+  readonly roleLabel = input('Workspace member');
 
   readonly closed = output<void>();
   readonly logoutRequested = output<void>();
 
-  protected readonly nav = NAV;
+  private readonly capabilities = inject(CapabilitiesService);
+
+  /**
+   * Admin-only links are dropped once the capability probe says the user cannot
+   * manage the catalogue. While the probe is unanswered (`null`) every link is
+   * shown, so an ADMIN never sees a truncated menu on first paint.
+   */
+  protected readonly nav = computed(() => {
+    const canManage = this.capabilities.canManageCatalogue();
+    if (canManage !== false) {
+      return NAV;
+    }
+    return NAV.filter((item) => !item.adminOnly);
+  });
 
   /**
    * Full literal class strings (rather than many `[class.x]` bindings) keep the

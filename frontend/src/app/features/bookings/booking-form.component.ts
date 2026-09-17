@@ -9,8 +9,25 @@ import {
 } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 
-import type { BookingPayload, Customer, Service, Staff } from '../../core/models/api.models';
-import { addMinutesToTime, formatDuration, formatPrice, todayIso } from '../../core/utils/datetime';
+import type {
+  Booking,
+  BookingPayload,
+  Customer,
+  Service,
+  Staff,
+  WorkingHours,
+} from '../../core/models/api.models';
+import {
+  addMinutesToTime,
+  formatDate,
+  formatDuration,
+  formatPrice,
+  isoToWeekday,
+  timeToMinutes,
+  todayIso,
+  WEEKDAY_LABELS,
+} from '../../core/utils/datetime';
+import { computeTimeSlots, countAvailable } from '../../core/utils/slots';
 import { ButtonComponent } from '../../shared/components/button.component';
 import { FieldComponent } from '../../shared/components/field.component';
 import { IconComponent } from '../../shared/components/icon.component';
@@ -18,17 +35,28 @@ import { IconComponent } from '../../shared/components/icon.component';
 /**
  * Create-booking form.
  *
- * Payload mirrors `BookingSerializer`'s writable fields. `end_time` is never
- * sent — the backend derives it from the service duration, and this form only
- * *previews* that value so the user can see what they are booking.
+ * THE FLOW
+ * --------
+ * Service -> compatible staff -> date -> available time -> customer -> confirm.
+ * Each step only becomes meaningful once the one above it is settled, which is
+ * the order the dependencies actually run in:
  *
- * Dynamic dependencies:
- *  - picking a service narrows the staff list to people who (a) are active and
- *    (b) actually perform that service, which is the same rule the backend
- *    enforces in `validate()`. This keeps the picker honest; it is not a
- *    security boundary.
- *  - picking a service also previews the end time from `duration_minutes`.
- *  - the date input cannot be set before today, matching the backend rule.
+ *   service   decides who can perform it and how long it takes
+ *   staff     decides whose diary and whose working hours apply
+ *   date      decides the weekday, and therefore which working hours apply
+ *   time      is derived from the three above
+ *   customer  is independent, so it comes last
+ *
+ * `end_time` is never an input and never sent. The backend derives it from
+ * `service.duration_minutes`; this form only previews the value.
+ *
+ * WHAT IS AND IS NOT ENFORCED HERE
+ * --------------------------------
+ * The staff filter and the slot grid reproduce the backend's rules so the user
+ * is not offered something that will be rejected. They are conveniences, not
+ * guarantees: the server re-validates on submit (overlap, working hours, past
+ * dates, staff-service assignment, organization membership) and its message is
+ * surfaced verbatim through `fieldErrors` / `nonFieldError`.
  */
 @Component({
   selector: 'app-booking-form',
@@ -43,6 +71,10 @@ export class BookingFormComponent {
   readonly customers = input.required<Customer[]>();
   readonly services = input.required<Service[]>();
   readonly staff = input.required<Staff[]>();
+  /** Needed to show which slots are already taken. */
+  readonly bookings = input<Booking[]>([]);
+  /** Needed to know when the chosen staff member actually works. */
+  readonly workingHours = input<WorkingHours[]>([]);
 
   readonly saving = input(false);
   readonly formError = input('');
@@ -52,26 +84,29 @@ export class BookingFormComponent {
   readonly cancelled = output<void>();
 
   protected readonly today = todayIso();
+  protected readonly weekdayLabels = WEEKDAY_LABELS;
 
   /**
-   * Signal mirrors of the two fields that drive dependent UI. Reactive-form
-   * values are not signals, so a `computed()` over `control.value` would not
-   * re-evaluate under zoneless change detection; the `(change)` / `(input)`
-   * handlers below keep these in sync.
+   * Signal mirrors of the fields that drive dependent UI. Reactive-form values
+   * are not signals, so a `computed()` over `control.value` would never
+   * re-evaluate under zoneless change detection; the `(change)` handlers below
+   * keep these in sync.
    */
   protected readonly selectedServiceId = signal<number | null>(null);
-  private readonly startTime = signal<string>('');
+  protected readonly selectedStaffId = signal<number | null>(null);
+  protected readonly selectedDate = signal<string>(todayIso());
+  protected readonly selectedSlot = signal<string>('');
 
   protected readonly form = this.fb.nonNullable.group({
-    customer: [null as number | null, [Validators.required]],
     service: [null as number | null, [Validators.required]],
     staff: [null as number | null, [Validators.required]],
     booking_date: [todayIso(), [Validators.required]],
     start_time: ['', [Validators.required]],
+    customer: [null as number | null, [Validators.required]],
     notes: [''],
   });
 
-  /* ------------------------------ dependencies ----------------------------- */
+  /* --------------------------- step 1: service ---------------------------- */
 
   /** Active services only — an inactive service should not be bookable. */
   protected readonly bookableServices = computed(() =>
@@ -82,9 +117,11 @@ export class BookingFormComponent {
     () => this.services().find((service) => service.id === this.selectedServiceId()) ?? null,
   );
 
+  /* ---------------------- step 2: staff who can do it ---------------------- */
+
   /**
    * Staff who can perform the selected service. Empty until a service is
-   * chosen, so the picker never offers someone who would be rejected.
+   * chosen, so the picker never offers someone the backend would reject.
    */
   protected readonly availableStaff = computed(() => {
     const serviceId = this.selectedServiceId();
@@ -94,8 +131,10 @@ export class BookingFormComponent {
     return this.staff().filter((member) => member.is_active && member.services.includes(serviceId));
   });
 
-  /** Active staff who could perform it but are flagged inactive — explained,
-   *  not silently hidden. */
+  /**
+   * Capable but inactive staff, named rather than silently hidden, so an empty
+   * picker explains itself.
+   */
   protected readonly inactiveCapableStaff = computed(() => {
     const serviceId = this.selectedServiceId();
     if (serviceId === null) {
@@ -106,42 +145,132 @@ export class BookingFormComponent {
     );
   });
 
-  protected readonly projectedEnd = computed(() => {
-    const duration = this.selectedService()?.duration_minutes;
-    if (!duration) {
-      return null;
-    }
-    return addMinutesToTime(this.startTime(), duration);
+  protected readonly selectedStaff = computed(
+    () => this.staff().find((member) => member.id === this.selectedStaffId()) ?? null,
+  );
+
+  /* --------------------- steps 3-4: date and time slot --------------------- */
+
+  protected readonly selectedWeekdayLabel = computed(() => {
+    const weekday = isoToWeekday(this.selectedDate());
+    return weekday === null ? null : this.weekdayLabels[weekday];
   });
 
-  /* ------------------------------- handlers -------------------------------- */
+  /** The chosen staff member's hours for the chosen weekday. */
+  protected readonly workingHoursForSelection = computed(() => {
+    const staffId = this.selectedStaffId();
+    const weekday = isoToWeekday(this.selectedDate());
+    if (staffId === null || weekday === null) {
+      return null;
+    }
+    return (
+      this.workingHours().find((row) => row.staff === staffId && row.weekday === weekday) ?? null
+    );
+  });
+
+  /**
+   * Bookable slots, computed with the backend's own arithmetic. On today's date
+   * slots that have already passed are dropped.
+   */
+  protected readonly slots = computed(() => {
+    const service = this.selectedService();
+    const staffId = this.selectedStaffId();
+    if (!service || staffId === null) {
+      return [];
+    }
+
+    const date = this.selectedDate();
+    const isToday = date === this.today;
+
+    return computeTimeSlots({
+      workingHours: this.workingHoursForSelection(),
+      durationMinutes: service.duration_minutes,
+      date,
+      bookings: this.bookings(),
+      staffId,
+      notBeforeMinutes: isToday ? this.minutesSinceMidnight() : null,
+    });
+  });
+
+  protected readonly openSlots = computed(() => countAvailable(this.slots()));
+
+  /** True once every input to the slot grid is settled. */
+  protected readonly canComputeSlots = computed(
+    () => this.selectedService() !== null && this.selectedStaffId() !== null,
+  );
+
+  protected readonly projectedEnd = computed(() => {
+    const duration = this.selectedService()?.duration_minutes;
+    if (!duration || !this.selectedSlot()) {
+      return null;
+    }
+    return addMinutesToTime(this.selectedSlot(), duration);
+  });
+
+  /** Minutes since midnight, used to hide slots that have already passed. */
+  private minutesSinceMidnight(): number | null {
+    const now = new Date();
+    return now.getHours() * 60 + now.getMinutes();
+  }
+
+  /* -------------------------------- handlers ------------------------------- */
 
   protected onServiceChange(value: string): void {
     const id = value === '' ? null : Number(value);
     this.selectedServiceId.set(id);
-    // A previously chosen staff member may not perform the new service.
+    // A previously chosen staff member may not perform the new service, and the
+    // slot grid depends on both.
+    this.clearStaff();
+    this.clearTime();
+  }
+
+  protected onStaffChange(value: string): void {
+    const id = value === '' ? null : Number(value);
+    this.selectedStaffId.set(id);
+    // Different person, different diary.
+    this.clearTime();
+  }
+
+  protected onDateChange(value: string): void {
+    this.selectedDate.set(value);
+    this.clearTime();
+  }
+
+  protected chooseSlot(start: string): void {
+    this.selectedSlot.set(start);
+    this.form.controls.start_time.setValue(start);
+    this.form.controls.start_time.markAsTouched();
+    this.form.controls.start_time.updateValueAndValidity();
+  }
+
+  private clearStaff(): void {
+    this.selectedStaffId.set(null);
     this.form.controls.staff.reset(null);
     this.form.controls.staff.updateValueAndValidity();
   }
 
-  protected onStartTimeChange(value: string): void {
-    this.startTime.set(value);
+  private clearTime(): void {
+    this.selectedSlot.set('');
+    this.form.controls.start_time.reset('');
+    this.form.controls.start_time.updateValueAndValidity();
   }
 
   protected reset(): void {
     this.form.reset({
-      customer: null,
       service: null,
       staff: null,
       booking_date: todayIso(),
       start_time: '',
+      customer: null,
       notes: '',
     });
     this.selectedServiceId.set(null);
-    this.startTime.set('');
+    this.selectedStaffId.set(null);
+    this.selectedDate.set(todayIso());
+    this.selectedSlot.set('');
   }
 
-  /* -------------------------------- errors --------------------------------- */
+  /* --------------------------------- errors -------------------------------- */
 
   protected fieldError(
     name: 'customer' | 'service' | 'staff' | 'booking_date' | 'start_time',
@@ -181,7 +310,7 @@ export class BookingFormComponent {
       service: value.service,
       staff: value.staff,
       booking_date: value.booking_date,
-      // The API wants "HH:MM:SS".
+      // The API wants "HH:MM:SS"; the slot grid produces "HH:MM".
       start_time: value.start_time.length === 5 ? `${value.start_time}:00` : value.start_time,
       status: 'PENDING',
       notes: value.notes,
@@ -192,4 +321,6 @@ export class BookingFormComponent {
 
   protected readonly formatDuration = formatDuration;
   protected readonly formatPrice = formatPrice;
+  protected readonly formatDate = formatDate;
+  protected readonly timeToMinutes = timeToMinutes;
 }
