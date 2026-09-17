@@ -1,0 +1,414 @@
+<app-page-header title="Bookings" subtitle="Every appointment across your organization.">
+  <app-button variant="secondary" icon="refresh" (clicked)="load()">Refresh</app-button>
+  <app-button icon="plus" (clicked)="openCreate()">New booking</app-button>
+</app-page-header>
+
+<!-- ============================== Filters ============================== -->
+<div class="mt-5 space-y-3">
+  <!-- Range pills -->
+  <div class="flex flex-wrap items-center gap-1.5" role="group" aria-label="Date range">
+    @for (
+      option of [
+        { key: 'upcoming', label: 'Upcoming' },
+        { key: 'today', label: 'Today' },
+        { key: 'past', label: 'Past' },
+        { key: 'all', label: 'All' },
+      ];
+      track option.key
+    ) {
+      <button
+        type="button"
+        (click)="rangeFilter.set($any(option.key))"
+        class="rounded-full px-3 py-1.5 text-sm font-medium transition"
+        [class]="
+          rangeFilter() === option.key
+            ? 'bg-brand-600 text-white shadow-xs'
+            : 'bg-white text-slate-600 ring-1 ring-slate-200 ring-inset hover:bg-slate-50'
+        "
+        [attr.aria-pressed]="rangeFilter() === option.key"
+      >
+        {{ option.label }}
+      </button>
+    }
+  </div>
+
+  <div class="flex flex-col gap-3 xl:flex-row xl:items-center">
+    <div class="w-full xl:max-w-xs">
+      <app-search-input
+        id="booking-search"
+        placeholder="Search customer, service, staff…"
+        ariaLabel="Search bookings"
+        [value]="search()"
+        (changed)="search.set($event)"
+        (cleared)="search.set('')"
+      />
+    </div>
+
+    <div class="grid grid-cols-2 gap-2 sm:grid-cols-3 xl:flex xl:items-center">
+      <label for="filter-status" class="sr-only">Filter by status</label>
+      <div class="relative">
+        <select
+          id="filter-status"
+          class="form-control h-10 appearance-none pr-9"
+          [value]="statusFilter()"
+          (change)="statusFilter.set($any($event.target).value)"
+        >
+          <option value="all">Any status</option>
+          @for (status of statusOptions; track status) {
+            <option [value]="status">{{ statusStyle(status).label }}</option>
+          }
+        </select>
+        <span
+          class="pointer-events-none absolute inset-y-0 right-0 grid w-9 place-items-center text-slate-400"
+          aria-hidden="true"
+        >
+          <app-icon name="chevronDown" class="size-4" />
+        </span>
+      </div>
+
+      <label for="filter-staff" class="sr-only">Filter by staff</label>
+      <div class="relative">
+        <select
+          id="filter-staff"
+          class="form-control h-10 appearance-none pr-9"
+          [value]="staffFilter()"
+          (change)="staffFilter.set($any($event.target).value)"
+        >
+          <option value="all">Any staff</option>
+          @for (member of staff(); track member.id) {
+            <option [value]="member.id">{{ member.name }}</option>
+          }
+        </select>
+        <span
+          class="pointer-events-none absolute inset-y-0 right-0 grid w-9 place-items-center text-slate-400"
+          aria-hidden="true"
+          ><app-icon name="chevronDown" class="size-4"
+        /></span>
+      </div>
+
+      <label for="filter-service" class="sr-only">Filter by service</label>
+      <div class="relative">
+        <select
+          id="filter-service"
+          class="form-control h-10 appearance-none pr-9"
+          [value]="serviceFilter()"
+          (change)="serviceFilter.set($any($event.target).value)"
+        >
+          <option value="all">Any service</option>
+          @for (service of services(); track service.id) {
+            <option [value]="service.id">{{ service.name }}</option>
+          }
+        </select>
+        <span
+          class="pointer-events-none absolute inset-y-0 right-0 grid w-9 place-items-center text-slate-400"
+          aria-hidden="true"
+          ><app-icon name="chevronDown" class="size-4"
+        /></span>
+      </div>
+
+      <label for="filter-customer" class="sr-only">Filter by customer</label>
+      <div class="relative">
+        <select
+          id="filter-customer"
+          class="form-control h-10 appearance-none pr-9"
+          [value]="customerFilter()"
+          (change)="customerFilter.set($any($event.target).value)"
+        >
+          <option value="all">Any customer</option>
+          @for (customer of customers(); track customer.id) {
+            <option [value]="customer.id">{{ customer.name }}</option>
+          }
+        </select>
+        <span
+          class="pointer-events-none absolute inset-y-0 right-0 grid w-9 place-items-center text-slate-400"
+          aria-hidden="true"
+          ><app-icon name="chevronDown" class="size-4"
+        /></span>
+      </div>
+
+      <label for="filter-date" class="sr-only">Filter by exact date</label>
+      <input
+        id="filter-date"
+        type="date"
+        class="form-control h-10 tabular-nums"
+        [value]="dateFilter()"
+        (change)="dateFilter.set($any($event.target).value)"
+      />
+    </div>
+
+    <div class="flex items-center gap-3 xl:ml-auto">
+      <div class="inline-flex rounded-lg bg-slate-100 p-0.5" role="group" aria-label="View mode">
+        <button
+          type="button"
+          (click)="setView('list')"
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition"
+          [class]="
+            view() === 'list'
+              ? 'bg-white text-slate-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          "
+          [attr.aria-pressed]="view() === 'list'"
+        >
+          List
+        </button>
+        <button
+          type="button"
+          (click)="setView('day')"
+          class="rounded-md px-3 py-1.5 text-sm font-medium transition"
+          [class]="
+            view() === 'day'
+              ? 'bg-white text-slate-900 shadow-xs'
+              : 'text-slate-600 hover:text-slate-900'
+          "
+          [attr.aria-pressed]="view() === 'day'"
+        >
+          By day
+        </button>
+      </div>
+
+      @if (hasActiveFilters()) {
+        <app-button variant="ghost" size="sm" icon="close" (clicked)="resetFilters()">
+          Clear
+        </app-button>
+      }
+    </div>
+  </div>
+
+  <app-result-count [shown]="filtered().length" [total]="bookings().length" noun="booking" />
+</div>
+
+<!-- ============================== Content ============================== -->
+@if (loading()) {
+  <app-card class="mt-4 block">
+    <app-skeleton kind="table" [rows]="8" />
+  </app-card>
+} @else if (error(); as message) {
+  <app-card class="mt-4 block">
+    <app-error-state title="Unable to load bookings" [message]="message" (retried)="load()" />
+  </app-card>
+} @else if (bookings().length === 0) {
+  <app-card class="mt-4 block">
+    <app-empty-state
+      icon="calendar"
+      title="No bookings yet"
+      message="Create your first appointment. You will need a customer, an active service and a staff member assigned to it."
+      actionLabel="New booking"
+      (actionClicked)="openCreate()"
+    />
+  </app-card>
+} @else if (filtered().length === 0) {
+  <app-card class="mt-4 block">
+    <app-empty-state
+      icon="search"
+      title="No bookings match these filters"
+      message="Try widening the date range or clearing a filter."
+      actionLabel="Clear filters"
+      actionIcon="close"
+      (actionClicked)="resetFilters()"
+    />
+  </app-card>
+} @else if (view() === 'list') {
+  <!-- ---------------------------- List view ---------------------------- -->
+  <app-card class="mt-4 hidden md:block">
+    <table class="table-shell">
+      <thead>
+        <tr>
+          <th scope="col">Date</th>
+          <th scope="col">Time</th>
+          <th scope="col">Customer</th>
+          <th scope="col">Service</th>
+          <th scope="col">Staff</th>
+          <th scope="col">Status</th>
+          <th scope="col">
+            <span class="sr-only">Actions</span>
+          </th>
+        </tr>
+      </thead>
+      <tbody>
+        @for (booking of filtered(); track booking.id) {
+          <tr class="transition hover:bg-slate-50">
+            <td class="whitespace-nowrap">
+              <a
+                [routerLink]="['/bookings', booking.id]"
+                class="font-medium text-slate-900 underline-offset-4 hover:underline"
+              >
+                {{ formatDate(booking.booking_date) }}
+              </a>
+              <span class="block text-xs text-slate-400">
+                {{ relativeDay(booking.booking_date) }}
+              </span>
+            </td>
+            <td class="whitespace-nowrap tabular-nums text-slate-600">
+              {{ formatTime(booking.start_time) }} – {{ formatTime(booking.end_time) }}
+            </td>
+            <td class="font-medium text-slate-900">
+              {{ name('customer', booking.customer) }}
+            </td>
+            <td class="text-slate-600">{{ name('service', booking.service) }}</td>
+            <td class="text-slate-600">{{ name('staff', booking.staff) }}</td>
+            <td><app-status-badge [status]="booking.status" /></td>
+            <td>
+              <div class="flex items-center justify-end gap-1">
+                @if (booking.status === 'PENDING') {
+                  <app-button
+                    variant="ghost"
+                    size="xs"
+                    icon="check"
+                    [loading]="busyId() === booking.id"
+                    (clicked)="changeStatus(booking, 'CONFIRMED')"
+                  >
+                    Confirm
+                  </app-button>
+                }
+                @if (booking.status !== 'CANCELLED' && booking.status !== 'COMPLETED') {
+                  <app-button
+                    variant="ghost"
+                    size="xs"
+                    [disabled]="busyId() === booking.id"
+                    (clicked)="changeStatus(booking, 'CANCELLED')"
+                  >
+                    Cancel
+                  </app-button>
+                }
+                <a [routerLink]="['/bookings', booking.id]">
+                  <app-button variant="secondary" size="xs">Open</app-button>
+                </a>
+              </div>
+            </td>
+          </tr>
+        }
+      </tbody>
+    </table>
+  </app-card>
+
+  <!-- Mobile cards -->
+  <ul class="mt-4 space-y-3 md:hidden">
+    @for (booking of filtered(); track booking.id) {
+      <li class="rounded-card border border-slate-200 bg-white p-4 shadow-card">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="text-sm font-semibold text-slate-900">
+              {{ formatTime(booking.start_time) }} – {{ formatTime(booking.end_time) }}
+            </p>
+            <p class="text-xs text-slate-500">
+              {{ formatDate(booking.booking_date) }} ·
+              {{ relativeDay(booking.booking_date) }}
+            </p>
+          </div>
+          <app-status-badge [status]="booking.status" />
+        </div>
+
+        <dl class="mt-3 space-y-1 text-sm">
+          <div class="flex gap-2">
+            <dt class="w-16 shrink-0 text-slate-400">Customer</dt>
+            <dd class="min-w-0 truncate text-slate-700">
+              {{ name('customer', booking.customer) }}
+            </dd>
+          </div>
+          <div class="flex gap-2">
+            <dt class="w-16 shrink-0 text-slate-400">Service</dt>
+            <dd class="min-w-0 truncate text-slate-600">
+              {{ name('service', booking.service) }}
+            </dd>
+          </div>
+          <div class="flex gap-2">
+            <dt class="w-16 shrink-0 text-slate-400">Staff</dt>
+            <dd class="min-w-0 truncate text-slate-600">{{ name('staff', booking.staff) }}</dd>
+          </div>
+        </dl>
+
+        <div class="mt-3 flex items-center gap-2">
+          <a [routerLink]="['/bookings', booking.id]" class="flex-1">
+            <app-button variant="secondary" size="sm" block>Open</app-button>
+          </a>
+          @if (booking.status === 'PENDING') {
+            <app-button
+              variant="success"
+              size="sm"
+              [loading]="busyId() === booking.id"
+              (clicked)="changeStatus(booking, 'CONFIRMED')"
+            >
+              Confirm
+            </app-button>
+          }
+        </div>
+      </li>
+    }
+  </ul>
+} @else {
+  <!-- ----------------------------- Day view ----------------------------- -->
+  <div class="mt-4 space-y-4">
+    @for (group of groupedByDate(); track group.date) {
+      <app-card>
+        <div
+          card-header
+          class="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3"
+        >
+          <div>
+            <h2 class="text-sm font-semibold text-slate-900">
+              {{ formatDate(group.date) }}
+            </h2>
+            <p class="text-xs text-slate-500">{{ relativeDay(group.date) }}</p>
+          </div>
+          <span
+            class="rounded-full bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 tabular-nums"
+          >
+            {{ group.items.length }}
+          </span>
+        </div>
+
+        <ul class="divide-y divide-slate-100">
+          @for (booking of group.items; track booking.id) {
+            <li>
+              <a
+                [routerLink]="['/bookings', booking.id]"
+                class="flex items-center gap-4 px-5 py-3 transition hover:bg-slate-50"
+              >
+                <div class="w-24 shrink-0">
+                  <p class="text-sm font-semibold text-slate-900 tabular-nums">
+                    {{ formatTime(booking.start_time) }}
+                  </p>
+                  <p class="text-xs text-slate-500 tabular-nums">
+                    {{ formatTime(booking.end_time) }}
+                  </p>
+                </div>
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-medium text-slate-900">
+                    {{ name('customer', booking.customer) }}
+                  </p>
+                  <p class="truncate text-xs text-slate-500">
+                    {{ name('service', booking.service) }} ·
+                    {{ name('staff', booking.staff) }}
+                  </p>
+                </div>
+                <app-status-badge [status]="booking.status" />
+              </a>
+            </li>
+          }
+        </ul>
+      </app-card>
+    }
+  </div>
+}
+
+<!-- ========================== New booking dialog ========================== -->
+<app-modal
+  [open]="createOpen()"
+  title="New booking"
+  description="Availability, overlaps and working hours are validated by the server."
+  size="lg"
+  [showFooter]="false"
+  [dismissible]="!saving()"
+  (closed)="closeCreate()"
+>
+  <app-booking-form
+    [customers]="customers()"
+    [services]="services()"
+    [staff]="staff()"
+    [saving]="saving()"
+    [formError]="createError()"
+    [fieldErrors]="createFieldErrors()"
+    (submitted)="onCreate($event)"
+    (cancelled)="closeCreate()"
+  />
+</app-modal>

@@ -1,0 +1,345 @@
+<!-- ============================ Header ============================ -->
+<header class="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+  <div>
+    <p class="text-sm font-medium text-brand-700">{{ heading }}</p>
+    <h1 class="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
+      Here is what is happening today
+    </h1>
+    <p class="mt-1 text-sm text-slate-500">{{ todayLabel }}</p>
+  </div>
+
+  <div class="flex flex-wrap items-center gap-2">
+    <a routerLink="/bookings">
+      <app-button variant="secondary" icon="calendar">All bookings</app-button>
+    </a>
+    <a routerLink="/bookings" [queryParams]="{ create: '1' }">
+      <app-button icon="plus">New booking</app-button>
+    </a>
+  </div>
+</header>
+
+<!-- ============================ States ============================ -->
+@if (loading()) {
+  <div class="mt-6 space-y-6">
+    <app-skeleton kind="cards" [rows]="4" />
+    <app-skeleton kind="table" [rows]="5" />
+  </div>
+} @else if (error(); as message) {
+  <app-card class="mt-6 block">
+    <app-error-state
+      title="Unable to load your dashboard"
+      [message]="message"
+      retryLabel="Retry"
+      (retried)="load()"
+    />
+  </app-card>
+} @else if (data(); as d) {
+  <!-- ========================= Setup checklist ========================= -->
+  @if (setupIncomplete()) {
+    <app-card class="mt-6 block">
+      <div
+        card-header
+        class="flex items-center gap-2 border-b border-slate-200 bg-brand-50/60 px-5 py-3"
+      >
+        <app-icon name="sparkles" class="size-4 text-brand-700" />
+        <h2 class="text-sm font-semibold text-brand-900">Finish setting up your workspace</h2>
+      </div>
+
+      <ul class="grid gap-2 sm:grid-cols-2">
+        @for (step of setupSteps(); track step.label) {
+          <li>
+            <a
+              [routerLink]="step.href"
+              class="flex items-start gap-3 rounded-lg px-2 py-2 transition hover:bg-slate-50"
+            >
+              <span
+                class="mt-0.5 grid size-5 shrink-0 place-items-center rounded-full border"
+                [class.border-confirmed-600]="step.done"
+                [class.bg-confirmed-600]="step.done"
+                [class.text-white]="step.done"
+                [class.border-slate-300]="!step.done"
+                [class.text-transparent]="!step.done"
+                aria-hidden="true"
+              >
+                <app-icon name="check" class="size-3" />
+              </span>
+              <span
+                class="text-sm"
+                [class.text-slate-400]="step.done"
+                [class.line-through]="step.done"
+                [class.text-slate-700]="!step.done"
+              >
+                {{ step.label }}
+              </span>
+            </a>
+          </li>
+        }
+      </ul>
+    </app-card>
+  }
+
+  <!-- ============================ Metrics ============================ -->
+  <section class="mt-6 grid gap-4 sm:grid-cols-2 xl:grid-cols-4" aria-label="Key metrics">
+    <app-stat-card
+      label="Customers"
+      [value]="d.totals.customers"
+      icon="users"
+      hint="Client records on file"
+    />
+    <app-stat-card
+      label="Staff"
+      [value]="d.totals.staff"
+      icon="user"
+      [hint]="d.totals.activeStaff + ' active'"
+    />
+    <app-stat-card
+      label="Services"
+      [value]="d.totals.services"
+      icon="scissors"
+      [hint]="d.totals.activeServices + ' active'"
+    />
+    <app-stat-card
+      label="Upcoming"
+      [value]="d.totals.upcoming"
+      icon="calendar"
+      hint="Pending or confirmed"
+    />
+  </section>
+
+  <!-- ==================== Today + status + actions ==================== -->
+  <div class="mt-6 grid gap-6 lg:grid-cols-3">
+    <!-- Today's schedule -->
+    <app-card class="lg:col-span-2">
+      <div
+        card-header
+        class="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3.5"
+      >
+        <div>
+          <h2 class="text-sm font-semibold text-slate-900">Today's schedule</h2>
+          <p class="text-xs text-slate-500">
+            {{ d.totals.today }} appointment{{ d.totals.today === 1 ? '' : 's' }}
+            @if (d.todayValue > 0) {
+              · {{ formatPrice(d.todayValue) }} scheduled
+            }
+          </p>
+        </div>
+        <a
+          routerLink="/bookings"
+          class="text-xs font-medium text-brand-700 underline-offset-4 hover:underline"
+        >
+          View all
+        </a>
+      </div>
+
+      @if (d.todayBookings.length === 0) {
+        <app-empty-state
+          icon="calendar"
+          title="Nothing booked for today"
+          message="Appointments you create for today will appear here."
+          actionLabel="New booking"
+          [actionLink]="['/bookings']"
+          [actionQueryParams]="{ create: '1' }"
+        />
+      } @else {
+        <ul class="divide-y divide-slate-100">
+          @for (booking of d.todayBookings; track booking.id) {
+            <li>
+              <a
+                [routerLink]="['/bookings', booking.id]"
+                class="flex items-center gap-4 px-5 py-3 transition hover:bg-slate-50"
+              >
+                <div class="w-24 shrink-0">
+                  <p class="text-sm font-semibold text-slate-900 tabular-nums">
+                    {{ formatTime(booking.start_time) }}
+                  </p>
+                  <p class="text-xs text-slate-500 tabular-nums">
+                    {{ formatTime(booking.end_time) }}
+                  </p>
+                </div>
+
+                <div class="min-w-0 flex-1">
+                  <p class="truncate text-sm font-medium text-slate-900">
+                    {{ name('customer', booking.customer) }}
+                  </p>
+                  <p class="truncate text-xs text-slate-500">
+                    {{ name('service', booking.service) }} ·
+                    {{ name('staff', booking.staff) }}
+                  </p>
+                </div>
+
+                <app-status-badge [status]="booking.status" />
+              </a>
+            </li>
+          }
+        </ul>
+      }
+    </app-card>
+
+    <!-- Right rail -->
+    <div class="space-y-6">
+      <!-- Status mix -->
+      <app-card>
+        <div card-header class="border-b border-slate-200 px-5 py-3.5">
+          <h2 class="text-sm font-semibold text-slate-900">Booking status</h2>
+          <p class="text-xs text-slate-500">All time</p>
+        </div>
+
+        @if (statusRows().length === 0) {
+          <p class="px-5 py-6 text-sm text-slate-500">
+            No bookings yet, so there is nothing to break down.
+          </p>
+        } @else {
+          <ul class="space-y-3 px-5 py-4">
+            @for (row of statusRows(); track row.key) {
+              <li>
+                <div class="flex items-center justify-between gap-3 text-sm">
+                  <app-status-badge [status]="row.key" />
+                  <span class="text-slate-600 tabular-nums">
+                    {{ row.count }} · {{ row.percent }}%
+                  </span>
+                </div>
+                <div class="mt-1.5 h-1.5 overflow-hidden rounded-full bg-slate-100">
+                  <div
+                    class="h-full rounded-full"
+                    [class]="
+                      row.key === 'PENDING'
+                        ? 'bg-pending-600'
+                        : row.key === 'CONFIRMED'
+                          ? 'bg-confirmed-600'
+                          : row.key === 'CANCELLED'
+                            ? 'bg-danger-600'
+                            : row.key === 'COMPLETED'
+                              ? 'bg-brand-600'
+                              : 'bg-slate-400'
+                    "
+                    [style.width.%]="row.percent"
+                  ></div>
+                </div>
+              </li>
+            }
+          </ul>
+        }
+      </app-card>
+
+      <!-- Quick actions -->
+      <app-card>
+        <div card-header class="border-b border-slate-200 px-5 py-3.5">
+          <h2 class="text-sm font-semibold text-slate-900">Quick actions</h2>
+        </div>
+
+        <ul class="divide-y divide-slate-100">
+          <li>
+            <a
+              routerLink="/bookings"
+              [queryParams]="{ create: '1' }"
+              class="flex items-center gap-3 px-5 py-3 text-sm text-slate-700 transition hover:bg-slate-50"
+            >
+              <app-icon name="plus" class="size-4 text-slate-400" />
+              Create a booking
+            </a>
+          </li>
+          <li>
+            <a
+              routerLink="/customers"
+              [queryParams]="{ create: '1' }"
+              class="flex items-center gap-3 px-5 py-3 text-sm text-slate-700 transition hover:bg-slate-50"
+            >
+              <app-icon name="users" class="size-4 text-slate-400" />
+              Add a customer
+            </a>
+          </li>
+          <li>
+            <a
+              routerLink="/services"
+              [queryParams]="{ create: '1' }"
+              class="flex items-center gap-3 px-5 py-3 text-sm text-slate-700 transition hover:bg-slate-50"
+            >
+              <app-icon name="scissors" class="size-4 text-slate-400" />
+              Add a service
+            </a>
+          </li>
+          <li>
+            <a
+              routerLink="/availability"
+              class="flex items-center gap-3 px-5 py-3 text-sm text-slate-700 transition hover:bg-slate-50"
+            >
+              <app-icon name="clock" class="size-4 text-slate-400" />
+              Set working hours
+            </a>
+          </li>
+        </ul>
+      </app-card>
+    </div>
+  </div>
+
+  <!-- ============================ Upcoming ============================ -->
+  <app-card class="mt-6 block">
+    <div
+      card-header
+      class="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3.5"
+    >
+      <div>
+        <h2 class="text-sm font-semibold text-slate-900">Upcoming appointments</h2>
+        <p class="text-xs text-slate-500">
+          Next {{ d.upcomingBookings.length }} pending or confirmed
+        </p>
+      </div>
+      <a
+        routerLink="/bookings"
+        class="text-xs font-medium text-brand-700 underline-offset-4 hover:underline"
+      >
+        Manage
+      </a>
+    </div>
+
+    @if (d.upcomingBookings.length === 0) {
+      <app-empty-state
+        icon="calendar"
+        title="No upcoming appointments"
+        message="Once you book an appointment it will show up here, ordered by date."
+      />
+    } @else {
+      <div class="overflow-x-auto">
+        <table class="table-shell">
+          <thead>
+            <tr>
+              <th scope="col">Date</th>
+              <th scope="col">Time</th>
+              <th scope="col">Customer</th>
+              <th scope="col">Service</th>
+              <th scope="col" class="hidden md:table-cell">Staff</th>
+              <th scope="col">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            @for (booking of d.upcomingBookings; track booking.id) {
+              <tr class="transition hover:bg-slate-50">
+                <td class="whitespace-nowrap">
+                  <a
+                    [routerLink]="['/bookings', booking.id]"
+                    class="font-medium text-slate-900 underline-offset-4 hover:underline"
+                  >
+                    {{ formatDate(booking.booking_date) }}
+                  </a>
+                  <span class="block text-xs text-slate-400">
+                    {{ relativeDay(booking.booking_date) }}
+                  </span>
+                </td>
+                <td class="whitespace-nowrap tabular-nums">
+                  {{ formatTime(booking.start_time) }} –
+                  {{ formatTime(booking.end_time) }}
+                </td>
+                <td>{{ name('customer', booking.customer) }}</td>
+                <td class="text-slate-600">{{ name('service', booking.service) }}</td>
+                <td class="hidden text-slate-600 md:table-cell">
+                  {{ name('staff', booking.staff) }}
+                </td>
+                <td><app-status-badge [status]="booking.status" /></td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
+    }
+  </app-card>
+}

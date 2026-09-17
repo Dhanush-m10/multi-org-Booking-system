@@ -1,3 +1,137 @@
-/* You can add global styles to this file, and also import other style files */
+/* ==========================================================================
+   Design system for the Multi-Org Booking System.
+   Tailwind CSS v4 (CSS-first configuration — no tailwind.config.js needed).
+
+   Everything colour-related lives in the @theme block below so components can
+   use semantic utility classes (`bg-brand-600`, `text-danger-700`, ...) instead
+   of hard-coding hex values all over the templates.
+   ========================================================================== */
 
 @import 'tailwindcss';
+
+@theme {
+  /* --- Typography ------------------------------------------------------- */
+  --font-sans:
+    'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial,
+    sans-serif;
+
+  /* --- Brand (indigo) --------------------------------------------------- */
+  --color-brand-50: oklch(0.962 0.018 272.314);
+  --color-brand-100: oklch(0.93 0.034 272.788);
+  --color-brand-200: oklch(0.87 0.065 274.039);
+  --color-brand-300: oklch(0.785 0.115 274.713);
+  --color-brand-400: oklch(0.673 0.182 276.935);
+  --color-brand-500: oklch(0.585 0.233 277.117);
+  --color-brand-600: oklch(0.511 0.262 276.966);
+  --color-brand-700: oklch(0.457 0.24 277.023);
+  --color-brand-800: oklch(0.398 0.195 277.366);
+  --color-brand-900: oklch(0.359 0.144 278.697);
+  --color-brand-950: oklch(0.257 0.09 281.288);
+
+  /* --- Status: Pending (amber) ------------------------------------------ */
+  --color-pending-50: oklch(0.987 0.022 95.277);
+  --color-pending-100: oklch(0.962 0.059 95.617);
+  --color-pending-600: oklch(0.666 0.179 58.318);
+  --color-pending-700: oklch(0.555 0.163 48.998);
+  --color-pending-800: oklch(0.473 0.137 46.201);
+
+  /* --- Status: Confirmed (green) ---------------------------------------- */
+  --color-confirmed-50: oklch(0.982 0.018 155.826);
+  --color-confirmed-100: oklch(0.962 0.044 156.743);
+  --color-confirmed-600: oklch(0.627 0.194 149.214);
+  --color-confirmed-700: oklch(0.527 0.154 150.069);
+  --color-confirmed-800: oklch(0.448 0.119 151.328);
+
+  /* --- Status: Cancelled / danger (red) ---------------------------------- */
+  --color-danger-50: oklch(0.971 0.013 17.38);
+  --color-danger-100: oklch(0.936 0.032 17.717);
+  --color-danger-600: oklch(0.577 0.245 27.325);
+  --color-danger-700: oklch(0.505 0.213 27.518);
+  --color-danger-800: oklch(0.444 0.177 26.899);
+
+  /* --- Radius / motion --------------------------------------------------- */
+  --radius-card: 0.625rem;
+
+  /* --- Elevation --------------------------------------------------------- */
+  --shadow-card: 0 1px 2px 0 rgb(15 23 42 / 0.05);
+  --shadow-pop: 0 12px 32px -8px rgb(15 23 42 / 0.18), 0 2px 6px -2px rgb(15 23 42 / 0.08);
+}
+
+/* ==========================================================================
+   Base layer
+   ========================================================================== */
+
+@layer base {
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-slate-100 font-sans text-slate-800 antialiased;
+  }
+
+  /* Visible, consistent keyboard focus everywhere. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-brand-600;
+  }
+
+  /* Slim, unobtrusive scrollbars inside scrollable panels/tables. */
+  .scroll-slim {
+    scrollbar-width: thin;
+    scrollbar-color: var(--color-slate-300) transparent;
+  }
+  .scroll-slim::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  .scroll-slim::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-300;
+  }
+}
+
+/* ==========================================================================
+   Small component-level helpers.
+   Kept intentionally tiny — everything else is composed with utilities in
+   templates so the styling stays visible next to the markup.
+   ========================================================================== */
+
+@layer components {
+  /* Shared form-control look, applied via `appField` wrapper component. */
+  .form-control {
+    @apply block w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-900
+      shadow-xs transition placeholder:text-slate-400
+      focus:border-brand-500 focus:ring-2 focus:ring-brand-500/25 focus:outline-none
+      disabled:cursor-not-allowed disabled:bg-slate-50 disabled:text-slate-500;
+  }
+
+  .form-control-invalid {
+    @apply border-danger-600 focus:border-danger-600 focus:ring-danger-600/20;
+  }
+
+  .table-shell {
+    @apply w-full border-collapse text-left text-sm;
+  }
+
+  .table-shell thead th {
+    @apply border-b border-slate-200 bg-slate-50 px-4 py-2.5 text-xs font-semibold tracking-wide
+      text-slate-500 uppercase whitespace-nowrap;
+  }
+
+  .table-shell tbody td {
+    @apply border-b border-slate-100 px-4 py-3 align-middle text-slate-700;
+  }
+
+  .table-shell tbody tr:last-child td {
+    @apply border-b-0;
+  }
+}
+
+/* Respect users who prefer reduced motion. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

@@ -1,0 +1,239 @@
+<app-page-header
+  title="Availability"
+  subtitle="Working hours control which slots can actually be booked."
+/>
+
+<p class="mt-2 text-xs text-slate-500">
+  Working hours are set per staff member and per weekday. The API only allows creating them, so
+  existing days are shown read-only.
+</p>
+
+<!-- ============================ Staff picker ============================ -->
+<div class="mt-5 flex flex-col gap-3 sm:flex-row sm:items-end">
+  <div class="w-full sm:max-w-xs">
+    <label for="availability-staff" class="mb-1.5 block text-sm font-medium text-slate-700">
+      Staff member
+    </label>
+    <div class="relative">
+      <select
+        id="availability-staff"
+        class="form-control h-10 appearance-none pr-9"
+        [value]="selectedStaffId() ?? ''"
+        [disabled]="loading() || staff().length === 0"
+        (change)="selectStaff($any($event.target).value)"
+      >
+        @if (staff().length === 0) {
+          <option value="">No staff yet</option>
+        }
+        @for (member of staff(); track member.id) {
+          <option [value]="member.id">{{ member.name }}</option>
+        }
+      </select>
+      <span
+        class="pointer-events-none absolute inset-y-0 right-0 grid w-9 place-items-center text-slate-400"
+        aria-hidden="true"
+      >
+        <app-icon name="chevronDown" class="size-4" />
+      </span>
+    </div>
+  </div>
+
+  @if (!loading() && selectedStaff()) {
+    <p class="text-sm text-slate-500">{{ setDays() }} of 7 days configured</p>
+  }
+</div>
+
+<!-- ============================== Content ============================== -->
+@if (loading()) {
+  <app-card class="mt-4 block">
+    <app-skeleton kind="table" [rows]="7" />
+  </app-card>
+} @else if (error(); as message) {
+  <app-card class="mt-4 block">
+    <app-error-state title="Unable to load working hours" [message]="message" (retried)="load()" />
+  </app-card>
+} @else if (staff().length === 0) {
+  <app-card class="mt-4 block">
+    <app-empty-state
+      icon="clock"
+      title="Add staff first"
+      message="Working hours belong to a staff member, so you need at least one before setting availability."
+      actionLabel="Go to staff"
+      actionIcon="user"
+      [actionLink]="['/staff']"
+      [actionQueryParams]="{ create: '1' }"
+    />
+  </app-card>
+} @else {
+  <app-card class="mt-4 block">
+    <div
+      card-header
+      class="flex items-center justify-between gap-3 border-b border-slate-200 px-5 py-3.5"
+    >
+      <div>
+        <h2 class="text-sm font-semibold text-slate-900">
+          Weekly hours · {{ selectedStaff()?.name }}
+        </h2>
+        <p class="text-xs text-slate-500">Monday through Sunday</p>
+      </div>
+      @if (selectedStaff()?.is_active === false) {
+        <span
+          class="rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-500/20 ring-inset"
+        >
+          Inactive
+        </span>
+      }
+    </div>
+
+    <ul class="divide-y divide-slate-100">
+      @for (day of week(); track day.weekday) {
+        <li class="flex flex-col gap-3 px-5 py-3.5 sm:flex-row sm:items-center">
+          <div class="w-28 shrink-0">
+            <p class="text-sm font-medium text-slate-900">{{ day.label }}</p>
+          </div>
+
+          <div class="min-w-0 flex-1">
+            @if (day.hours; as hours) {
+              @if (hours.is_available) {
+                <div class="flex items-center gap-2.5">
+                  <span
+                    class="inline-flex items-center gap-1.5 rounded-full bg-confirmed-50 px-2.5 py-1 text-xs font-medium text-confirmed-800 ring-1 ring-confirmed-600/20 ring-inset"
+                  >
+                    <app-icon name="check" class="size-3" />
+                    Available
+                  </span>
+                  <span class="text-sm text-slate-700 tabular-nums">
+                    {{ formatTime(hours.start_time) }} — {{ formatTime(hours.end_time) }}
+                  </span>
+                </div>
+              } @else {
+                <span
+                  class="inline-flex items-center gap-1.5 rounded-full bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600 ring-1 ring-slate-500/20 ring-inset"
+                >
+                  <app-icon name="ban" class="size-3" />
+                  Unavailable
+                </span>
+              }
+            } @else {
+              <span class="text-sm text-slate-400">Not set — not bookable</span>
+            }
+          </div>
+
+          <div class="shrink-0">
+            @if (day.hours) {
+              <span class="text-xs text-slate-400">Saved</span>
+            } @else {
+              <app-button
+                variant="secondary"
+                size="sm"
+                icon="plus"
+                (clicked)="openForm(day.weekday)"
+              >
+                Set hours
+              </app-button>
+            }
+          </div>
+        </li>
+      }
+    </ul>
+
+    @if (setDays() === 7) {
+      <div
+        card-footer
+        class="flex items-start gap-2 border-t border-slate-200 bg-confirmed-50/60 px-5 py-3"
+      >
+        <app-icon name="checkCircle" class="mt-0.5 size-4 shrink-0 text-confirmed-700" />
+        <p class="text-sm text-confirmed-800">
+          Every day is configured for {{ selectedStaff()?.name }}.
+        </p>
+      </div>
+    }
+  </app-card>
+}
+
+<!-- ============================ Set hours ============================ -->
+<app-modal
+  [open]="formOpen()"
+  [title]="dialogTitle()"
+  description="Bookings outside these hours are rejected by the backend."
+  [dismissible]="!saving()"
+  (closed)="closeForm()"
+>
+  <form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4" novalidate>
+    @if (formError(); as message) {
+      <div
+        class="flex items-start gap-2.5 rounded-lg border border-danger-600/20 bg-danger-50 px-3.5 py-3"
+        role="alert"
+      >
+        <app-icon name="alert" class="mt-0.5 size-4 shrink-0 text-danger-700" />
+        <p class="text-sm text-danger-800">{{ message }}</p>
+      </div>
+    }
+
+    <label
+      for="hours-available"
+      class="flex cursor-pointer items-center gap-3 rounded-lg border border-slate-200 px-3.5 py-3 transition hover:bg-slate-50"
+    >
+      <input
+        id="hours-available"
+        type="checkbox"
+        formControlName="is_available"
+        class="size-4 rounded border-slate-300 text-brand-600 focus:ring-brand-500/30"
+      />
+      <span class="text-sm">
+        <span class="font-medium text-slate-900">Available on this day</span>
+        <span class="block text-xs text-slate-500">
+          Uncheck to record the day as unavailable.
+        </span>
+      </span>
+    </label>
+
+    <div class="grid gap-4 sm:grid-cols-2">
+      <app-field
+        label="Start time"
+        for="hours-start"
+        [error]="
+          form.controls.start_time.touched && !form.controls.start_time.valid ? 'Required.' : ''
+        "
+        [required]="true"
+      >
+        <input
+          id="hours-start"
+          type="time"
+          formControlName="start_time"
+          step="900"
+          class="form-control tabular-nums"
+        />
+      </app-field>
+
+      <app-field
+        label="End time"
+        for="hours-end"
+        [error]="form.controls.end_time.touched && !form.controls.end_time.valid ? 'Required.' : ''"
+        [required]="true"
+      >
+        <input
+          id="hours-end"
+          type="time"
+          formControlName="end_time"
+          step="900"
+          class="form-control tabular-nums"
+        />
+      </app-field>
+    </div>
+
+    @if (timeError() && (form.controls.start_time.touched || form.controls.end_time.touched)) {
+      <p class="flex items-start gap-1.5 text-sm text-danger-700" role="alert">
+        <app-icon name="alert" class="mt-0.5 size-3.5 shrink-0" />
+        {{ timeError() }}
+      </p>
+    }
+
+    <div modal-footer class="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+      <app-button variant="secondary" (clicked)="closeForm()" [disabled]="saving()">
+        Cancel
+      </app-button>
+      <app-button type="submit" [loading]="saving()">Save hours</app-button>
+    </div>
+  </form>
+</app-modal>
