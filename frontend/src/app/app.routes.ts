@@ -113,6 +113,36 @@ export const routes: Routes = [
       import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
     data: { title: 'Book an appointment', chromeless: true },
   },
+  // The named steps of the customer flow. Each binds `step` via
+  // withComponentInputBinding(), so the screen can say which stage was asked
+  // for. They are separate routes rather than one `:step` wildcard so the
+  // intended flow is explicit in the routing table.
+  {
+    path: 'book/:organizationSlug/services',
+    loadComponent: () =>
+      import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
+    data: { title: 'Choose a service', chromeless: true, step: 'services' },
+  },
+  {
+    path: 'book/:organizationSlug/staff',
+    loadComponent: () =>
+      import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
+    data: { title: 'Choose a staff member', chromeless: true, step: 'staff' },
+  },
+  {
+    path: 'book/:organizationSlug/date',
+    loadComponent: () =>
+      import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
+    data: { title: 'Pick a date and time', chromeless: true, step: 'date' },
+  },
+  {
+    path: 'book/:organizationSlug/confirmation',
+    loadComponent: () =>
+      import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
+    data: { title: 'Booking confirmation', chromeless: true, step: 'confirmation' },
+  },
+  // Unrecognised step: still the customer portal, never a 404, so a mistyped
+  // link does not drop a visitor out of the public experience.
   {
     path: 'book/:organizationSlug/:step',
     loadComponent: () =>

@@ -2,6 +2,7 @@ import { ChangeDetectionStrategy, Component, computed, inject, signal } from '@a
 import { RouterLink } from '@angular/router';
 
 import { DashboardService, type DashboardData } from '../../core/services/dashboard.service';
+import { AuthService } from '../../core/services/auth.service';
 import { apiErrorMessage } from '../../core/utils/api-errors';
 import {
   formatDate,
@@ -47,12 +48,29 @@ import { StatusBadgeComponent } from '../../shared/components/status-badge.compo
 })
 export class DashboardComponent {
   private readonly dashboardService = inject(DashboardService);
+  private readonly authService = inject(AuthService);
 
   protected readonly loading = signal(true);
   protected readonly error = signal<string | null>(null);
   protected readonly data = signal<DashboardData | null>(null);
 
   protected readonly heading = greeting();
+
+  /**
+   * The signed-in user's own username — real data captured at login.
+   *
+   * The organization name is deliberately NOT shown here. It cannot be
+   * obtained: there is no /api/me, no organization endpoint of any kind
+   * (`organizations/views.py` is empty and the app has no `urls.py`), the JWT
+   * payload is only `{token_type, exp, iat, jti, user_id}`, and every record
+   * exposes `organization` as a bare integer id. Verified: all of
+   * `/api/me/`, `/api/auth/me/`, `/api/organizations/` return 404.
+   *
+   * A `GET /api/me/` returning the organization name is the backend change
+   * that would allow a header like "Acme Clinic / Welcome back, Dhanush".
+   * Until then, printing an organization name here would mean inventing one.
+   */
+  protected readonly username = this.authService.displayName;
   protected readonly todayLabel = new Intl.DateTimeFormat('en-GB', {
     weekday: 'long',
     day: 'numeric',

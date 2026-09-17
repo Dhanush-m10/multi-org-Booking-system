@@ -3,7 +3,11 @@
   <div>
     <p class="text-sm font-medium text-brand-700">{{ heading }}</p>
     <h1 class="mt-1 text-2xl font-semibold tracking-tight text-slate-900">
-      Here is what is happening today
+      @if (username(); as name) {
+        Welcome back, {{ name }}
+      } @else {
+        Welcome back
+      }
     </h1>
     <p class="mt-1 text-sm text-slate-500">{{ todayLabel }}</p>
   </div>

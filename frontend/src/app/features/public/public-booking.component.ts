@@ -1,5 +1,5 @@
-import { ChangeDetectionStrategy, Component, computed, input } from '@angular/core';
-import { RouterLink } from '@angular/router';
+import { ChangeDetectionStrategy, Component, computed, inject, input } from '@angular/core';
+import { ActivatedRoute, RouterLink } from '@angular/router';
 
 import { ButtonComponent } from '../../shared/components/button.component';
 import { IconComponent, type IconName } from '../../shared/components/icon.component';
@@ -54,9 +54,16 @@ interface PlannedStep {
   templateUrl: './public-booking.component.html',
 })
 export class PublicBookingComponent {
+  private readonly route = inject(ActivatedRoute);
   /** From `/book/:organizationSlug`. Echoed back, never sent anywhere. */
   readonly organizationSlug = input<string>('');
-  /** From `/book/:organizationSlug/:step`, e.g. `services` or `date`. */
+  /**
+   * From `/book/:organizationSlug/:step`, e.g. `services` or `date`. Only the
+   * catch-all route carries a `:step` param; the named routes declare the stage
+   * in route `data`, which does not reach an input under the default
+   * `paramsInheritanceStrategy: 'emptyOnly'`. `requestedStep` below accepts
+   * either source.
+   */
   readonly step = input<string>('');
 
   protected readonly steps: PlannedStep[] = [
@@ -71,7 +78,10 @@ export class PublicBookingComponent {
   /** What the visitor asked for, so the page is specific rather than generic. */
   protected readonly requested = computed(() => this.organizationSlug() || null);
 
-  protected readonly requestedStep = computed(() => this.step() || null);
+  /** The stage asked for, whether it arrived as a param or as route data. */
+  protected readonly requestedStep = computed(
+    () => this.step() || (this.route.snapshot.data['step'] as string | undefined) || null,
+  );
 
   /**
    * The backend capabilities this screen is waiting on, in the order they would
