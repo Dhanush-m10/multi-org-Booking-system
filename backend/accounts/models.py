@@ -8,6 +8,10 @@ class OrganizationMembership(models.Model):
     class Role(models.TextChoices):
         ADMIN = "ADMIN", "Admin"
         STAFF = "STAFF", "Staff"
+        # Self-registered customer of the organization. Deliberately excluded
+        # from IsOrganizationAdmin and IsOrganizationStaff, both of which filter
+        # on an explicit role list, so it grants no management access.
+        CUSTOMER = "CUSTOMER", "Customer"
 
     user = models.ForeignKey(
         User,

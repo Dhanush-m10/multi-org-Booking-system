@@ -1,6 +1,6 @@
 import { Routes } from '@angular/router';
 
-import { authGuard, guestGuard } from './core/guards/auth.guard';
+import { authGuard, customerGuard, guestGuard } from './core/guards/auth.guard';
 
 /**
  * Application routes — TWO separate experiences.
@@ -11,11 +11,14 @@ import { authGuard, guestGuard } from './core/guards/auth.guard';
  *      /customers, /services,
  *      /staff, /availability      protected by `authGuard`, rendered in AppShell
  *
- * 2. CUSTOMER BOOKING PORTAL (public)
- *      /book/:organizationSlug[/:step]
+ * 2. CUSTOMER BOOKING PORTAL (public browse, authenticated booking)
+ *      /book/:organizationSlug[/:step]   anonymous: services -> staff -> time
+ *      /book/:organizationSlug/register  create a customer account
+ *      /customer/bookings                the signed-in customer's own bookings
  *    Deliberately outside AppShell: no sidebar, no dashboard, no management
- *    chrome. See `features/public/public-booking.component.ts` for why it
- *    currently renders a "not available yet" state instead of data.
+ *    chrome. Everything it reads comes from the unauthenticated public API, and
+ *    everything it writes goes to the customer-scoped endpoints, which derive
+ *    organization and customer from the token.
  *
  * Every screen is lazy-loaded, so the initial bundle only contains the shell +
  * login. Each route carries `data.title` / `data.subtitle`, which the top bar
@@ -141,6 +144,16 @@ export const routes: Routes = [
       import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
     data: { title: 'Booking confirmation', chromeless: true, step: 'confirmation' },
   },
+  // Customer sign-up for one specific organization. Must precede the `:step`
+  // catch-all below, otherwise `register` would be treated as a step name.
+  {
+    path: 'book/:organizationSlug/register',
+    loadComponent: () =>
+      import('./features/public/customer-register.component').then(
+        (m) => m.CustomerRegisterComponent,
+      ),
+    data: { title: 'Create your account', chromeless: true },
+  },
   // Unrecognised step: still the customer portal, never a 404, so a mistyped
   // link does not drop a visitor out of the public experience.
   {
@@ -148,6 +161,18 @@ export const routes: Routes = [
     loadComponent: () =>
       import('./features/public/public-booking.component').then((m) => m.PublicBookingComponent),
     data: { title: 'Book an appointment', chromeless: true },
+  },
+  /* ------------------------------------------------------------------------ */
+  /* Customer self-service (authenticated CUSTOMER only)                       */
+  /* ------------------------------------------------------------------------ */
+  {
+    path: 'customer/bookings',
+    canActivate: [customerGuard],
+    loadComponent: () =>
+      import('./features/customer/customer-bookings.component').then(
+        (m) => m.CustomerBookingsComponent,
+      ),
+    data: { title: 'My bookings', chromeless: true },
   },
   {
     path: '**',

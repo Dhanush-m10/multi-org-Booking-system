@@ -1,1 +1,7 @@
 <router-outlet />
+
+<!-- Global overlays. Mounted here rather than in AppShell so the customer
+     portal and the auth screens get toasts and confirmation dialogs too;
+     they render nothing until a service raises a request. -->
+<app-toast-host />
+<app-confirm-host />

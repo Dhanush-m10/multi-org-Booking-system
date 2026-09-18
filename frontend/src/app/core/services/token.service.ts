@@ -48,6 +48,12 @@ function readUser(): SessionUser | null {
       id: Number(parsed.id) || 0,
       username: parsed.username,
       email: typeof parsed.email === 'string' ? parsed.email : '',
+      // Role and organization come from GET /api/auth/me/. They are optional so
+      // a session stored by an older build still parses, and they are display
+      // metadata only — the backend authorizes every request from the token.
+      role: parsed.role ?? null,
+      organizationName: typeof parsed.organizationName === 'string' ? parsed.organizationName : '',
+      organizationSlug: parsed.organizationSlug ?? null,
     };
   } catch {
     return null;
@@ -70,6 +76,28 @@ export class TokenService {
   readonly isAuthenticated = computed(() => this._accessToken() !== null);
 
   readonly displayName = computed(() => this._user()?.username ?? '');
+
+  /** Organization role from `GET /api/auth/me/`, or null before it resolves. */
+  readonly role = computed(() => this._user()?.role ?? null);
+
+  /**
+   * True for a self-registered customer. Drives navigation only: which portal
+   * a signed-in user is sent to. It is not a permission — a customer reaching a
+   * management screen would get 403 from every endpoint, and a staff user
+   * editing localStorage to claim CUSTOMER would only hide links from
+   * themselves.
+   */
+  readonly isCustomer = computed(() => this._user()?.role === 'CUSTOMER');
+
+  readonly organizationName = computed(() => this._user()?.organizationName ?? '');
+
+  /**
+   * The signed-in user's organization slug. Used to build public-API links
+   * (`/book/<slug>`, the public catalogue). It is the user's own organization as
+   * reported by `GET /api/auth/me/` — never a value the visitor typed, and never
+   * sent as an authorization claim.
+   */
+  readonly organizationSlug = computed(() => this._user()?.organizationSlug ?? '');
 
   setTokens(access: string, refresh: string): void {
     this.persist(ACCESS_KEY, access);

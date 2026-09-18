@@ -28,7 +28,7 @@ Useful scripts:
 | ----------------------------------------------- | ----------------------------------------------- |
 | `npm start`                                     | Dev server with HMR + the API proxy             |
 | `npm run build`                                 | Production bundle → `dist/frontend/browser`     |
-| `npm test`                                      | Unit tests (Vitest — 111 tests across 13 files) |
+| `npm test`                                      | Unit tests (Vitest — 125 tests across 13 files) |
 | `npx prettier --write "src/**/*.{ts,html,css}"` | Format                                          |
 
 ---
@@ -130,18 +130,20 @@ toggled from the topbar.
 
 ### `features/` — the pages
 
-| Route                             | Folder                             | What it does                                                                                                    |
-| --------------------------------- | ---------------------------------- | --------------------------------------------------------------------------------------------------------------- |
-| `/login`, `/register`             | `features/auth/`                   | Auth forms on a shared branded `auth-layout`.                                                                   |
-| `/dashboard`                      | `features/dashboard/`              | Live metrics computed from real records.                                                                        |
-| `/bookings`                       | `features/bookings/bookings-page`  | Search + status/date filters, list and day views, create dialog, status actions.                                |
-| `/bookings/:id`                   | `features/bookings/booking-detail` | One booking, full status transitions, inline notes editing.                                                     |
-| `/services`                       | `features/services/`               | Categories and services.                                                                                        |
-| `/staff`                          | `features/staff/`                  | Staff with multi-select service assignment.                                                                     |
-| `/availability`                   | `features/availability/`           | Working hours for the 7 weekdays.                                                                               |
-| `/customers`                      | `features/customers/`              | Customer directory.                                                                                             |
-| `/book/:organizationSlug[/:step]` | `features/public/`                 | Customer booking portal — public, outside the shell, currently an honest "not available yet" state (see below). |
-| anything else                     | `features/not-found/`              | 404 page.                                                                                                       |
+| Route                              | Folder                             | What it does                                                                                             |
+| ---------------------------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `/login`, `/register`              | `features/auth/`                   | Auth forms on a shared branded `auth-layout`.                                                            |
+| `/dashboard`                       | `features/dashboard/`              | Live metrics computed from real records.                                                                 |
+| `/bookings`                        | `features/bookings/bookings-page`  | Search + status/date filters, list and day views, create dialog, status actions.                         |
+| `/bookings/:id`                    | `features/bookings/booking-detail` | One booking, full status transitions, inline notes editing.                                              |
+| `/services`                        | `features/services/`               | Categories and services.                                                                                 |
+| `/staff`                           | `features/staff/`                  | Staff with multi-select service assignment.                                                              |
+| `/availability`                    | `features/availability/`           | Working hours for the 7 weekdays.                                                                        |
+| `/customers`                       | `features/customers/`              | Customer directory.                                                                                      |
+| `/book/:organizationSlug[/:step]`  | `features/public/`                 | Customer booking wizard — public, outside the shell. Steps: `services`, `staff`, `date`, `confirmation`. |
+| `/book/:organizationSlug/register` | `features/public/`                 | Customer sign-up, scoped to the organization in the URL.                                                 |
+| `/customer/bookings`               | `features/customer/`               | The signed-in customer's own bookings, with cancellation. `customerGuard`.                               |
+| anything else                      | `features/not-found/`              | 404 page.                                                                                                |
 
 ---
 
@@ -157,33 +159,47 @@ belongs to an organization through its `OrganizationMembership`; the user is not
 "logging into an organization".
 
 **2. Customer booking portal** — `/book`, `/book/:organizationSlug`,
-`/book/:organizationSlug/:step`. Public, deliberately **outside** `AppShell`: no
+`/book/:organizationSlug/{services,staff,date,confirmation}`,
+`/book/:organizationSlug/register` and `/customer/bookings`. Browsing is public;
+booking requires a customer account. Deliberately **outside** `AppShell`: no
 sidebar, no dashboard, no management chrome. It never shows staff management,
 service management, customer management or availability management.
 
-`features/public/public-booking.component.ts` is where the customer portal lives.
-It currently renders an honest "not available yet" state — no mock services, no
-sample times, no invented endpoints — because the four backend capabilities it
-needs do not exist. See _Customer booking portal: backend requirements_ below.
+`features/public/public-booking.component.ts` drives the four-step wizard,
+`features/public/customer-register.component.ts` handles sign-up for one specific
+organization, and `features/customer/customer-bookings.component.ts` lists and
+cancels the signed-in customer's own bookings. See _Customer booking portal_
+below.
 
 ---
 
 ## Roles and permissions
 
-The backend splits its permissions in two, and the frontend follows that split
+The backend has three permission classes, and the frontend follows that split
 rather than papering over it:
 
-| Endpoint                  | Permission            | ADMIN |  STAFF  | Anonymous |
-| ------------------------- | --------------------- | :---: | :-----: | :-------: |
-| `GET /api/bookings/`      | `IsOrganizationStaff` |  200  |   200   |    401    |
-| `GET /api/bookings/<id>/` | `IsOrganizationStaff` |  200  |   200   |    401    |
-| `GET /api/customers/`     | `IsOrganizationStaff` |  200  |   200   |    401    |
-| `GET /api/categories/`    | `IsOrganizationAdmin` |  200  | **403** |    401    |
-| `GET /api/services/`      | `IsOrganizationAdmin` |  200  | **403** |    401    |
-| `GET /api/staff/`         | `IsOrganizationAdmin` |  200  | **403** |    401    |
-| `GET /api/working-hours/` | `IsOrganizationAdmin` |  200  | **403** |    401    |
+| Endpoint                                 | Permission               |  ADMIN  |  STAFF  | CUSTOMER | Anonymous |
+| ---------------------------------------- | ------------------------ | :-----: | :-----: | :------: | :-------: |
+| `GET /api/bookings/`                     | `IsOrganizationStaff`    |   200   |   200   | **403**  |    401    |
+| `GET /api/bookings/<id>/`                | `IsOrganizationStaff`    |   200   |   200   | **403**  |    401    |
+| `GET /api/customers/`                    | `IsOrganizationStaff`    |   200   |   200   | **403**  |    401    |
+| `GET /api/categories/`                   | `IsOrganizationAdmin`    |   200   | **403** | **403**  |    401    |
+| `GET /api/services/`                     | `IsOrganizationAdmin`    |   200   | **403** | **403**  |    401    |
+| `GET /api/staff/`                        | `IsOrganizationAdmin`    |   200   | **403** | **403**  |    401    |
+| `GET /api/working-hours/`                | `IsOrganizationAdmin`    |   200   | **403** | **403**  |    401    |
+| `GET /api/customer/bookings/`            | `IsOrganizationCustomer` | **403** | **403** |   200    |    401    |
+| `GET /api/public/organizations/<slug>/…` | `AllowAny`               |   200   |   200   |   200    |    200    |
+| `GET /api/auth/me/`                      | `IsAuthenticated`        |   200   |   200   |   200    |    401    |
 
-(Verified against the running API with a real `STAFF`-role member.)
+(Verified against the running API with real ADMIN, STAFF and CUSTOMER tokens.)
+
+`CUSTOMER` is a new value of `OrganizationMembership.Role`. Both existing
+permission classes filter on an **explicit** role list — `IsOrganizationAdmin`
+matches only `ADMIN`, `IsOrganizationStaff` only `ADMIN`/`STAFF` — so adding the
+role grants nothing. `IsOrganizationMember`, the one class with no role filter,
+is defined but used by no view, so it could not leak either. ADMIN and STAFF
+behaviour is unchanged, and is pinned by backend tests that assert the old status
+codes.
 
 Two consequences the UI handles explicitly:
 
@@ -205,71 +221,131 @@ The sidebar's role line is derived the same way. It previously hard-coded
 `Organization admin` / `Organization staff` / `Workspace member` while the probe
 is pending.
 
-**The organization name cannot be displayed.** There is no `/api/me`, no
-organization endpoint of any kind (`organizations/views.py` is empty and the app
-has no `urls.py`), the JWT payload is only
-`{token_type, exp, iat, jti, user_id}`, and every record exposes `organization`
-as a bare integer id. So a header like "ABC Clinic / Welcome back, Dhanush" is
-not achievable without a backend change, and the UI shows only the signed-in
-username rather than inventing a name.
+**The organization name is now available.** `GET /api/auth/me/` returns the
+caller's own `{ id, username, email, organization: { id, name, slug }, role,
+customer_id }`. It is fetched immediately after login and stored by
+`TokenService`, so it survives a reload and the customer portal can show which
+business the session belongs to. It describes only the caller — it never lists
+other members — and it is display metadata, not authorization.
 
 ---
 
-## Customer booking portal: backend requirements
+## Customer booking portal
 
-None of the following exist today. They are documented, not worked around.
+The customer flow is fully wired to the backend. Everything a visitor reads comes
+from an unauthenticated public API; everything they write goes to customer-scoped
+endpoints that derive identity from the token.
 
-**1. Public organization lookup**
-`Organization` has `name, email, phone, address, created_at` — **no `slug`**. There
-is no `organizations/urls.py` and `organizations/views.py` is empty, so no
-organization endpoint exists at all (confirmed: `/api/organizations/` → 404 even
-when authenticated). Required:
+### Public, unauthenticated
 
 ```
-Organization.slug = models.SlugField(max_length=100, unique=True)   # + migration
-GET /api/public/organizations/<slug>/     AllowAny
-    -> { name, address, phone, email }    (no member or customer data)
-GET /api/public/organizations/<slug>/services/    AllowAny, is_active=True only
-GET /api/public/organizations/<slug>/staff/       AllowAny, is_active=True only
-GET /api/public/organizations/<slug>/availability/ AllowAny, is_available=True only
+GET /api/public/organizations/<slug>/                    -> name, email, phone, address, slug
+GET /api/public/organizations/<slug>/services/           -> active services only
+GET /api/public/organizations/<slug>/staff/              -> active staff only
+GET /api/public/organizations/<slug>/availability/       -> working hours, is_available only
+GET /api/public/organizations/<slug>/availability/slots/ -> ?service=&staff=&date=
 ```
 
-Until a slug exists, `/book/abc-clinic` cannot be resolved to an organization. The
-frontend never lets a visitor submit an arbitrary organization id.
+The slug in the URL is the **only** organization selector anywhere in this flow.
+There is no organization id in a public URL, no organization picker in the UI,
+and no request that accepts one.
 
-**2. Unauthenticated read access**
-`DEFAULT_PERMISSION_CLASSES` is `IsAuthenticated` and every view sets an
-organization permission, so a tokenless request gets 401 from every resource
-endpoint. Public read-only views (above) are required before a visitor can see
-anything.
+What is deliberately _not_ exposed:
 
-**3. Customer authentication**
-`customers.Customer` is `organization + name + email + phone` with **no `User`
-foreign key**, and `OrganizationMembership.Role` is only `ADMIN | STAFF`. There is
-no customer account, login or registration. Required:
+- organization primary keys, memberships, users, credentials
+- the customer list, or any customer other than the requester
+- staff `email` / `phone` — a customer needs to know who will see them and what
+  they specialise in, not how to contact them directly
 
-- `Customer.user = OneToOneField(User, null=True)` **or** a separate
-  `CustomerAccount` model, plus a `CUSTOMER` role / a distinct permission class
-- `POST /api/auth/customer/register/` — email + password, creating a `User` linked
-  to a `Customer`
-- `POST /api/auth/customer/login/` — token pair
-- authorization that scopes a customer to _their own_ bookings only, never to the
-  organization's other customers
+The public serializers are plain `Serializer` classes with an explicit field
+list, so a new model column can never be exposed here by accident.
 
-**4. Customer booking permission**
-`BookingListCreateView.permission_classes = [IsOrganizationStaff]`. A customer
-cannot create a booking through the existing API, and this is stated plainly:
+### Slots are real
 
-> Customer booking requires a backend endpoint/permission model because the
-> current booking API requires `IsOrganizationStaff`.
+`availability/slots/` is computed on the server from the staff member's working
+hours, the service duration and their existing non-cancelled bookings, using the
+same arithmetic as `bookings/serializers.py`. There are no fake slots: no working
+hours for that weekday means an empty list, and a fully booked day means no
+available entries.
 
-A public booking endpoint would also need its own validation (the current
-serializer takes `organization` from the authenticated user's membership, which a
-customer would not have) and its own rate limiting.
+The acceptance case behaves exactly as required — a 30-minute service in
+09:00-17:00 with 10:00-10:30 already booked does **not** offer 10:00, while
+09:30 and 10:30 (which merely touch the booking) still are. Taken slots are still
+returned, with `available: false` and `reason: "booked"`, so the UI can say why
+rather than silently omitting a time.
 
-**Guest booking without login** is blocked by the same thing: there is no
-permission class under which an anonymous caller may create a `Booking`. A
-frontend-only workaround is not implemented and should not be.
+### Customer accounts
+
+```
+POST /api/auth/customer/register/   { organization_slug, name, email, phone, password }
+POST /api/auth/login/               { username, password }   <- the SAME endpoint admins use
+POST /api/auth/refresh/
+GET  /api/auth/me/                  -> id, email, role, organization { id, name, slug }
+```
+
+Customers are ordinary Django `User` records with a `CUSTOMER`
+`OrganizationMembership` and a linked `Customer` profile
+(`Customer.user`, a `OneToOneField`). There is no second authentication system
+and no customer-specific login endpoint.
+
+The register payload has **no role field**, so it cannot mint an admin —
+submitting `"role": "ADMIN"` is ignored and `CUSTOMER` is stored. Verified live.
+
+`GET /api/auth/me/` replaces the old capability _inference_: the role and
+organization name are now read rather than probed for. `CapabilitiesService`
+still exists for the admin/staff catalogue split, but the stored role is what
+routes a customer away from the management shell.
+
+### Customer bookings
+
+```
+GET  /api/customer/bookings/             the caller's own bookings, filtered server-side
+POST /api/customer/bookings/             { service, staff, booking_date, start_time, notes }
+POST /api/customer/bookings/<id>/cancel/
+```
+
+`customer` and `organization` are **read-only** in `CustomerBookingSerializer`
+and are derived from the token, so a submitted value is discarded by DRF before
+it reaches the view. `status` is read-only too, so a customer cannot mark a
+booking `COMPLETED` or `NO_SHOW`. There is no `PUT`, `PATCH` or `DELETE` —
+cancellation is the only mutation, and it is a dedicated operation.
+
+`CustomerBookingSerializer` subclasses `BookingSerializer`, so all twelve booking
+rules (organization membership of customer/service/staff, staff-performs-service,
+no past dates, working-hours containment, derived `end_time`, non-cancelled
+overlap) are inherited rather than duplicated. The customer path cannot drift
+from the staff path.
+
+A booking belonging to another customer or another organization returns **404**,
+the same response as one that does not exist, so an id cannot be probed.
+
+### What a customer cannot do
+
+| Attempt                                                  | Result            |
+| -------------------------------------------------------- | ----------------- |
+| `GET` any management endpoint                            | 403               |
+| `POST /api/bookings/` (the staff endpoint)               | 403               |
+| Submit another customer's id                             | ignored           |
+| Submit another organization's id                         | ignored           |
+| Book another organization's service or staff             | 400               |
+| Submit `status: COMPLETED`                               | ignored (PENDING) |
+| `PATCH` / `PUT` / `DELETE` a booking                     | 405               |
+| Read or cancel another customer's booking                | 404               |
+| Cancel a COMPLETED / NO_SHOW / already-CANCELLED booking | 400               |
+
+### Remaining limitations
+
+- **Guest booking is not supported.** Creating a `Booking` requires
+  authentication, and no anonymous caller should be able to. Browsing is public;
+  booking is not.
+- **No email verification.** If an organization has already created a customer
+  record for an email address, self-registration with that address is refused
+  rather than silently linking a new login to someone else's booking history.
+  The organization can link the account deliberately instead.
+- **No rescheduling.** A customer cancels and books again; there is no update
+  endpoint, by design.
+- **Public endpoints are not rate limited.** They are read-only and expose only
+  published data, but they have no throttling.
 
 ---
 
@@ -341,6 +417,17 @@ Three guarantees, each pinned by a unit test:
 in one call and returns only `{ id, username, email }` — **no tokens**. The UI
 therefore sends the user to `/login` with a confirmation message. The organization
 is derived server-side; there is no organization picker anywhere in the UI.
+
+**Who is signed in** → immediately after a successful login the app calls
+`GET /api/auth/me/` and stores the reported `role` and organization name. That is
+what lets the guards send a customer to `/customer/bookings` and an admin to
+`/dashboard` instead of both landing on the same screen. The call is
+best-effort: if it fails the session is still valid and the guards fall back to
+their unproven-role behaviour.
+
+**Customers use the same login endpoint** as admins and staff. They are ordinary
+Django users whose `OrganizationMembership.role` is `CUSTOMER`; there is no
+second authentication path.
 
 **Logout** clears storage, resets the auth signals and navigates to `/login`.
 

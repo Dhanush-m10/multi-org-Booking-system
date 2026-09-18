@@ -8,6 +8,11 @@ urlpatterns = [
 
     path(
         "api/",
+        include("organizations.urls")
+    ),
+
+    path(
+        "api/",
         include("services.urls")
     ),
 

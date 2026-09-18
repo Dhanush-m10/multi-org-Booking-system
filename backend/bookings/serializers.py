@@ -215,3 +215,35 @@ class BookingSerializer(serializers.ModelSerializer):
                 )
 
         return data
+
+class CustomerBookingSerializer(BookingSerializer):
+    """
+    Booking serializer for the customer portal.
+
+    It inherits *every* rule in `BookingSerializer.validate()` — organization
+    membership of customer/service/staff, the staff-performs-this-service check,
+    no past dates, working-hours containment, the derived `end_time`, and the
+    non-cancelled overlap check. None of that logic is repeated here, so the two
+    paths cannot drift apart.
+
+    The only differences are which fields the caller may supply:
+
+      organization  read-only in the parent already
+      customer      made read-only — derived from the authenticated user
+      status        made read-only — a customer cannot mark a booking COMPLETED
+                    or NO_SHOW; the model default (PENDING) applies
+
+    `customer` is injected into `data` before the inherited validation runs, so
+    the organization check at the top of the parent validates the caller's own
+    record instead of an id from the request body.
+    """
+
+    class Meta(BookingSerializer.Meta):
+        read_only_fields = BookingSerializer.Meta.read_only_fields + [
+            "customer",
+            "status",
+        ]
+
+    def validate(self, data):
+        data["customer"] = self.context["customer"]
+        return super().validate(data)

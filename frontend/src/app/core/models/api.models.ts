@@ -49,18 +49,49 @@ export interface RegisterPayload {
   organization_address: string;
 }
 
+/** `accounts.models.OrganizationMembership.Role` */
+export type OrganizationRole = 'ADMIN' | 'STAFF' | 'CUSTOMER';
+
 /**
  * The signed-in user, as far as the frontend can know it.
  *
- * The backend has no `/api/me/` endpoint and the JWT payload only carries
- * `user_id`, so after a hard reload we can only restore what was captured at
- * login time. This is display metadata only — it is never used for
- * authorization. See README "Backend gaps".
+ * `role` and the organization fields come from `GET /api/auth/me/`, which is
+ * fetched right after login. They are display and navigation metadata only —
+ * every authorization decision is made by the backend's permission classes, so
+ * editing localStorage here can widen nothing.
  */
 export interface SessionUser {
   id: number;
   username: string;
   email: string;
+  /** Null when the user has no organization membership, or before `me` loads. */
+  role?: OrganizationRole | null;
+  /** Organization display name; not used to scope any request. */
+  organizationName?: string;
+  organizationSlug?: string | null;
+}
+
+/** GET /api/auth/me/ -> 200 — `accounts.serializers.CurrentUserSerializer` */
+export interface CurrentUser {
+  id: number;
+  username: string;
+  email: string;
+  first_name: string;
+  last_name: string;
+  organization: { id: number; name: string; slug: string } | null;
+  role: OrganizationRole | null;
+  /** Set for CUSTOMER accounts only. */
+  customer_id: number | null;
+}
+
+/** POST /api/auth/customer/register/ -> 201 (no tokens; log in separately) */
+export interface CustomerRegisterPayload {
+  /** The organization's public slug, taken from the /book/<slug> URL. */
+  organization_slug: string;
+  name: string;
+  email: string;
+  phone: string;
+  password: string;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -70,9 +101,8 @@ export interface SessionUser {
 /**
  * `organizations.models.Organization`.
  *
- * There is currently no API endpoint that returns this — the backend resolves
- * the organization from the authenticated user on every request. The interface
- * exists so the type is ready when a `/api/organizations/me/` endpoint lands.
+ * Only exposed to admins through `GET /api/auth/me/` (as `CurrentUser`'s nested
+ * `organization`). There is no management CRUD endpoint for organizations.
  */
 export interface Organization {
   id: number;
@@ -81,6 +111,105 @@ export interface Organization {
   phone: string;
   address: string;
   created_at: string;
+}
+
+/* -------------------------------------------------------------------------- */
+/* Public customer portal                                                     */
+/*                                                                            */
+/* `GET /api/public/organizations/<slug>/...` — unauthenticated, read-only.    */
+/* These are deliberately separate interfaces from the management models       */
+/* above: the public serializers are plain `Serializer` classes with an         */
+/* explicit field list, so they omit `organization`, staff contact details and  */
+/* every primary key the visitor does not need. Do not "reuse" `Service` or     */
+/* `Staff` here — the shapes genuinely differ.                                  */
+/* -------------------------------------------------------------------------- */
+
+/** GET /api/public/organizations/<slug>/ -> 200 */
+export interface PublicOrganization {
+  slug: string;
+  name: string;
+  email: string;
+  phone: string;
+  address: string;
+}
+
+/** Nested inside `PublicService` — the only relation the public API expands. */
+export interface PublicCategory {
+  id: number;
+  name: string;
+}
+
+/** GET /api/public/organizations/<slug>/services/ -> 200 (active only) */
+export interface PublicService {
+  id: number;
+  name: string;
+  description: string;
+  duration_minutes: number;
+  /** DecimalField -> string, e.g. "40.00" */
+  price: string;
+  category: PublicCategory;
+}
+
+/** GET /api/public/organizations/<slug>/staff/ -> 200 (active only) */
+export interface PublicStaff {
+  id: number;
+  name: string;
+  specialization: string;
+  /** Ids of the services this person performs. No email or phone is exposed. */
+  service_ids: number[];
+}
+
+/** GET /api/public/organizations/<slug>/availability/ -> 200 */
+export interface PublicWorkingHours {
+  staff: number;
+  weekday: Weekday;
+  /** "HH:MM:SS" */
+  start_time: string;
+  /** "HH:MM:SS" */
+  end_time: string;
+}
+
+/** One offered start time. `available: false` means taken, and says why. */
+export interface AvailabilitySlot {
+  /** "HH:MM:SS" */
+  start: string;
+  /** "HH:MM:SS" — what the server will store as `end_time`. */
+  end: string;
+  available: boolean;
+  reason: 'booked' | null;
+}
+
+/** GET /api/public/organizations/<slug>/availability/slots/ -> 200 */
+export interface AvailabilitySlotsResponse {
+  service: number;
+  staff: number;
+  /** "YYYY-MM-DD" */
+  date: string;
+  duration_minutes: number;
+  /** Null when the staff member does not work that weekday. */
+  working_hours: PublicWorkingHours | null;
+  slots: AvailabilitySlot[];
+}
+
+/* -------------------------------------------------------------------------- */
+/* Customer self-service                                                      */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * POST /api/customer/bookings/ -> 201
+ *
+ * Note what is absent: no `customer`, no `organization` and no `status`. The
+ * backend derives the first two from the authenticated user and pins the third
+ * to PENDING; sending them has no effect.
+ */
+export interface CustomerBookingPayload {
+  service: number | null;
+  staff: number | null;
+  /** "YYYY-MM-DD" */
+  booking_date: string;
+  /** "HH:MM:SS" */
+  start_time: string;
+  notes: string;
 }
 
 /* -------------------------------------------------------------------------- */

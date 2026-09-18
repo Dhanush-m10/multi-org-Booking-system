@@ -1,4 +1,6 @@
+from django.contrib.auth.models import User
 from django.db import models
+
 from organizations.models import Organization
 
 
@@ -7,6 +9,23 @@ class Customer(models.Model):
         Organization,
         on_delete=models.CASCADE,
         related_name="customers"
+    )
+
+    # Optional link to the Django User that owns this customer record.
+    #
+    # OneToOneField, not ForeignKey, on purpose: it makes it impossible for one
+    # user account to be ambiguously linked to several customer records, which
+    # would make "my bookings" undefined.
+    #
+    # Null because customer records created by organization staff through the
+    # management portal have no login attached. Only self-registered customers
+    # get one.
+    user = models.OneToOneField(
+        User,
+        on_delete=models.CASCADE,
+        related_name="customer_profile",
+        null=True,
+        blank=True,
     )
 
     name = models.CharField(max_length=150)

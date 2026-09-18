@@ -7,6 +7,18 @@ import { Router, provideRouter } from '@angular/router';
 @Component({ selector: 'app-test-page', template: '' })
 class TestPageComponent {}
 
+/** What GET /api/auth/me/ returns for an organization admin. */
+const ADMIN_ME = {
+  id: 1,
+  username: 'orga_admin',
+  email: 'admin@example.com',
+  first_name: '',
+  last_name: '',
+  organization: { id: 1, name: 'Acme Clinic', slug: 'acme-clinic' },
+  role: 'ADMIN',
+  customer_id: null,
+};
+
 import { LoginComponent } from './login';
 import { TokenService } from '../../../core/services/token.service';
 
@@ -115,9 +127,60 @@ describe('LoginComponent', () => {
 
     backend.expectOne('/api/auth/login/').flush({ access: 'the-access', refresh: 'the-refresh' });
     fixture.detectChanges();
+
+    // Login now resolves the real identity via GET /api/auth/me/ so the guards
+    // can tell an admin from a customer. Flush it, or verify() will report it
+    // as an open request.
+    backend.expectOne('/api/auth/me/').flush(ADMIN_ME);
+    fixture.detectChanges();
     await fixture.whenStable();
 
     expect(tokens.accessToken()).toBe('the-access');
+    expect(router.url).toBe('/dashboard');
+  });
+
+  it('records the role reported by /api/auth/me/', async () => {
+    input('login-username').value = 'orga_admin';
+    input('login-username').dispatchEvent(new Event('input'));
+    input('login-password').value = 'StrongPass123!';
+    input('login-password').dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    root().querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+
+    backend.expectOne('/api/auth/login/').flush({ access: 'the-access', refresh: 'the-refresh' });
+    fixture.detectChanges();
+    backend.expectOne('/api/auth/me/').flush(ADMIN_ME);
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(tokens.role()).toBe('ADMIN');
+    expect(tokens.organizationName()).toBe('Acme Clinic');
+  });
+
+  it('still signs the user in when /api/auth/me/ fails', async () => {
+    input('login-username').value = 'orga_admin';
+    input('login-username').dispatchEvent(new Event('input'));
+    input('login-password').value = 'StrongPass123!';
+    input('login-password').dispatchEvent(new Event('input'));
+    fixture.detectChanges();
+
+    root().querySelector('form')!.dispatchEvent(new Event('submit'));
+    fixture.detectChanges();
+
+    backend.expectOne('/api/auth/login/').flush({ access: 'the-access', refresh: 'the-refresh' });
+    fixture.detectChanges();
+    // A failed identity lookup must not undo a successful login: the session is
+    // valid, and the guards fall back to their unproven-role behaviour.
+    backend
+      .expectOne('/api/auth/me/')
+      .flush({ detail: 'nope' }, { status: 500, statusText: 'Server Error' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(tokens.accessToken()).toBe('the-access');
+    expect(tokens.isAuthenticated()).toBe(true);
     expect(router.url).toBe('/dashboard');
   });
 });

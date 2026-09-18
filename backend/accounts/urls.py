@@ -5,7 +5,11 @@ from rest_framework_simplejwt.views import (
     TokenRefreshView,
 )
 
-from .views import RegisterView
+from .views import (
+    CurrentUserView,
+    CustomerRegisterView,
+    RegisterView,
+)
 
 
 urlpatterns = [
@@ -17,6 +21,14 @@ urlpatterns = [
     ),
 
     path(
+        "customer/register/",
+        CustomerRegisterView.as_view(),
+        name="customer-register",
+    ),
+
+    # Customers are ordinary Django users, so they authenticate through this
+    # same endpoint — no separate customer login is needed.
+    path(
         "login/",
         TokenObtainPairView.as_view(),
         name="login",
@@ -26,5 +38,11 @@ urlpatterns = [
         "refresh/",
         TokenRefreshView.as_view(),
         name="token-refresh",
+    ),
+
+    path(
+        "me/",
+        CurrentUserView.as_view(),
+        name="current-user",
     ),
 ]

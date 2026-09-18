@@ -1,6 +1,7 @@
 import { ChangeDetectionStrategy, Component, inject, signal } from '@angular/core';
 import { FormBuilder, ReactiveFormsModule, Validators } from '@angular/forms';
 import { Router, RouterLink } from '@angular/router';
+import { catchError, of, switchMap } from 'rxjs';
 
 import { AuthService } from '../../../core/services/auth.service';
 import { ToastService } from '../../../core/services/toast.service';
@@ -18,6 +19,13 @@ import { IconComponent } from '../../../shared/components/icon.component';
  * which expects `{ username, password }` and returns `{ access, refresh }`.
  * No fake authentication: if the request fails the backend's own message is
  * shown.
+ *
+ * Admins, staff and customers all sign in here — they are ordinary Django users
+ * whose `OrganizationMembership.role` differs. Immediately after the tokens are
+ * stored, `GET /api/auth/me/` resolves the real role so the guards can send a
+ * customer to `/customer/bookings` and an admin to the dashboard. That call is
+ * best-effort: if it fails the user is still signed in and the guards fall back
+ * to their existing behaviour.
  */
 @Component({
   selector: 'app-login',
@@ -72,19 +80,24 @@ export class LoginComponent {
     this.errorMessage.set('');
     this.submitting.set(true);
 
-    this.authService.login(this.form.getRawValue()).subscribe({
-      next: () => {
-        this.submitting.set(false);
-        this.toast.success('Signed in successfully.', 'Welcome back');
-        void this.router.navigateByUrl(this.returnUrl);
-      },
-      error: (error: unknown) => {
-        this.submitting.set(false);
-        // The backend answers 401 with `{ "detail": "No active account found
-        // with the given credentials" }`. `toApiError` turns that (and any
-        // network failure) into one readable sentence.
-        this.errorMessage.set(toApiError(error).message);
-      },
-    });
+    this.authService
+      .login(this.form.getRawValue())
+      // Resolve who this actually is. Failure here must not fail the login:
+      // the session is valid either way, and the guards degrade gracefully.
+      .pipe(switchMap(() => this.authService.loadCurrentUser().pipe(catchError(() => of(null)))))
+      .subscribe({
+        next: () => {
+          this.submitting.set(false);
+          this.toast.success('Signed in successfully.', 'Welcome back');
+          void this.router.navigateByUrl(this.returnUrl);
+        },
+        error: (error: unknown) => {
+          this.submitting.set(false);
+          // The backend answers 401 with `{ "detail": "No active account found
+          // with the given credentials" }`. `toApiError` turns that (and any
+          // network failure) into one readable sentence.
+          this.errorMessage.set(toApiError(error).message);
+        },
+      });
   }
 }

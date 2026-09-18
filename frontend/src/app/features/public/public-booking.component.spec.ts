@@ -1,97 +1,413 @@
+import { HttpTestingController, provideHttpClientTesting } from '@angular/common/http/testing';
+import { provideHttpClient } from '@angular/common/http';
+import { Component } from '@angular/core';
 import { ComponentFixture, TestBed } from '@angular/core/testing';
-import { RouterTestingModule } from '@angular/router/testing';
+import { Router, provideRouter } from '@angular/router';
 
 import { PublicBookingComponent } from './public-booking.component';
+import { TokenService } from '../../core/services/token.service';
+
+@Component({ selector: 'app-test-page', template: '' })
+class TestPageComponent {}
+
+const SLUG = 'acme-clinic';
+const BASE = `/api/public/organizations/${SLUG}`;
+
+const ORG = {
+  slug: SLUG,
+  name: 'Acme Clinic',
+  email: 'hello@acme.test',
+  phone: '0000000000',
+  address: '1 Test Street',
+};
+
+const SERVICES = [
+  {
+    id: 1,
+    name: 'Consultation',
+    description: 'A first appointment',
+    duration_minutes: 30,
+    price: '40.00',
+    category: { id: 1, name: 'General' },
+  },
+  {
+    id: 2,
+    name: 'Deep clean',
+    description: '',
+    duration_minutes: 60,
+    price: '95.00',
+    category: { id: 2, name: 'Dental' },
+  },
+];
+
+const STAFF = [
+  { id: 1, name: 'Dana Roy', specialization: 'Hygienist', service_ids: [1] },
+  { id: 2, name: 'Ben Lee', specialization: 'Surgeon', service_ids: [1, 2] },
+  { id: 3, name: 'Sam Fox', specialization: 'Ortho', service_ids: [2] },
+];
 
 /**
- * The customer portal is deliberately inert: the backend cannot resolve an
- * organization by slug, exposes no public read access, has no customer
- * authentication and requires IsOrganizationStaff to book. So these tests are
- * mostly about what the screen must NOT contain.
+ * The customer booking wizard.
+ *
+ * These tests assert the properties that matter for the customer portal:
+ * everything on screen comes from the API, the organization slug in the URL is
+ * the only organization selector, and the booking request carries no identity
+ * fields for the backend to have to second-guess.
  */
 describe('PublicBookingComponent', () => {
   let fixture: ComponentFixture<PublicBookingComponent>;
-  let root: HTMLElement;
+  let backend: HttpTestingController;
+  let router: Router;
+  let tokens: TokenService;
+
+  const root = () => fixture.nativeElement as HTMLElement;
+  const text = () => root().textContent ?? '';
+
+  /** Flush the three parallel catalogue requests a forkJoin issues. */
+  function flushCatalogue(): void {
+    backend.expectOne(`${BASE}/`).flush(ORG);
+    backend.expectOne(`${BASE}/services/`).flush(SERVICES);
+    backend.expectOne(`${BASE}/staff/`).flush(STAFF);
+    fixture.detectChanges();
+  }
+
+  async function create(opts: { slug?: string; step?: string } = {}): Promise<void> {
+    fixture = TestBed.createComponent(PublicBookingComponent);
+    if (opts.slug !== undefined) {
+      fixture.componentRef.setInput('organizationSlug', opts.slug);
+    } else {
+      fixture.componentRef.setInput('organizationSlug', SLUG);
+    }
+    if (opts.step) {
+      fixture.componentRef.setInput('step', opts.step);
+    }
+    fixture.detectChanges();
+    await fixture.whenStable();
+  }
 
   beforeEach(async () => {
+    localStorage.clear();
+
     await TestBed.configureTestingModule({
-      imports: [PublicBookingComponent, RouterTestingModule],
+      imports: [PublicBookingComponent],
+      providers: [
+        provideHttpClient(),
+        provideHttpClientTesting(),
+        provideRouter([
+          { path: 'book/:organizationSlug/:step', component: TestPageComponent },
+          { path: 'book/:organizationSlug/register', component: TestPageComponent },
+          { path: 'customer/bookings', component: TestPageComponent },
+          { path: 'login', component: TestPageComponent },
+        ]),
+      ],
     }).compileComponents();
 
-    fixture = TestBed.createComponent(PublicBookingComponent);
-    root = fixture.nativeElement as HTMLElement;
-    fixture.detectChanges();
+    backend = TestBed.inject(HttpTestingController);
+    router = TestBed.inject(Router);
+    tokens = TestBed.inject(TokenService);
   });
 
-  const text = () => (root.textContent ?? '').replace(/\s+/g, ' ');
-
-  it('echoes the requested organization slug', () => {
-    fixture.componentRef.setInput('organizationSlug', 'abc-clinic');
-    fixture.detectChanges();
-
-    expect(text()).toContain('abc-clinic');
+  afterEach(() => {
+    backend.verify();
+    localStorage.clear();
   });
 
-  it('echoes the requested step', () => {
-    fixture.componentRef.setInput('organizationSlug', 'abc-clinic');
-    fixture.componentRef.setInput('step', 'date');
-    fixture.detectChanges();
+  it('renders nothing invented while the catalogue is still loading', async () => {
+    await create();
 
-    expect(text()).toContain('date');
+    // Before the API answers, the DOM must not contain any service name, staff
+    // name or time of day. Everything shown later has to come from the response.
+    const html = text();
+    expect(html).not.toContain('Consultation');
+    expect(html).not.toContain('Dana Roy');
+    expect(html).not.toMatch(/\d{1,2}:\d{2}/);
+
+    flushCatalogue();
   });
 
-  it('states plainly that booking is not available', () => {
-    expect(text()).toContain('Online booking is not available yet');
+  it('shows the organization resolved from the slug in the URL', async () => {
+    await create();
+    flushCatalogue();
+
+    expect(text()).toContain('Acme Clinic');
   });
 
-  it('marks the planned steps as non-interactive', () => {
-    const items = Array.from(root.querySelectorAll<HTMLElement>('ol li'));
-    expect(items.length).toBe(6); // service, staff, date, time, details, confirmation
-    for (const item of items) {
-      expect(item.getAttribute('aria-disabled')).toBe('true');
-    }
-    expect(root.querySelectorAll('ol li button, ol li a').length).toBe(0);
-  });
+  it('asks for the organization slug it was given and no other identifier', async () => {
+    await create();
+    flushCatalogue();
 
-  it('names every backend capability it is waiting on', () => {
-    const body = text();
-    expect(body).toContain('public organization endpoint');
-    expect(body).toContain('Unauthenticated read access');
-    expect(body).toContain('customer identity');
-    expect(body).toContain('booking permission for customers');
-  });
-
-  it('contains no mock booking data', () => {
-    const body = text();
-
-    // No invented services, staff, customers or prices.
-    expect(body).not.toMatch(/\$\d/);
-    expect(body).not.toMatch(/\b\d{1,2}:\d{2}\b/); // no sample times
-    expect(body).not.toMatch(/\b(?:Mon|Tue|Wed|Thu|Fri|Sat|Sun)day\b/); // no sample dates
-    for (const name of ['Dana', 'Jane', 'Priya', 'Consultation', 'Haircut']) {
-      expect(body).not.toContain(name);
+    // Every request went to the slug-based public path. Nothing carried an
+    // organization id, and nothing asked the visitor for one.
+    for (const url of [`${BASE}/`, `${BASE}/services/`, `${BASE}/staff/`]) {
+      expect(url).toContain(SLUG);
+      expect(url).not.toMatch(/organization=\d/);
     }
   });
 
-  it('never asks the visitor for an organization id', () => {
-    // The slug comes from the URL only; there is no form to type one into.
-    expect(root.querySelectorAll('input, select, textarea').length).toBe(0);
+  it('lists exactly the services the API returned', async () => {
+    await create();
+    flushCatalogue();
+
+    const names = Array.from(root().querySelectorAll('ul li button span span'))
+      .map((node) => node.textContent?.trim() ?? '')
+      .filter(Boolean);
+
+    expect(names).toContain('Consultation');
+    expect(names).toContain('Deep clean');
+    expect(root().querySelectorAll('ul > li').length).toBe(SERVICES.length);
   });
 
-  it('never displays management chrome', () => {
-    const body = text();
-    expect(root.querySelector('app-sidebar')).toBeNull();
-    expect(root.querySelector('app-topbar')).toBeNull();
-    for (const label of ['Dashboard', 'Availability management', 'Customer management']) {
-      expect(body).not.toContain(label);
+  it('says so plainly when the organization has published no services', async () => {
+    await create();
+    backend.expectOne(`${BASE}/`).flush(ORG);
+    backend.expectOne(`${BASE}/services/`).flush([]);
+    backend.expectOne(`${BASE}/staff/`).flush([]);
+    fixture.detectChanges();
+
+    expect(text()).toContain('No services are available yet');
+  });
+
+  it('treats an unknown slug as an unknown business, not an error', async () => {
+    await create({ slug: 'no-such-business' });
+
+    // forkJoin unsubscribes from its siblings the instant one source errors, so
+    // only the first response can be flushed; the other two are cancelled and
+    // must not be flushed. verify() ignores cancelled requests.
+    backend
+      .expectOne('/api/public/organizations/no-such-business/')
+      .flush({ detail: 'Not found.' }, { status: 404, statusText: 'Not Found' });
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    expect(text()).toContain('We could not find that business');
+
+    const cancelled = backend.match(() => true).filter((request) => request.cancelled);
+    expect(cancelled.length).toBe(2);
+  });
+
+  it('offers a retry when the catalogue request fails', async () => {
+    await create();
+
+    // Same forkJoin short-circuit: one failure is enough, the rest are cancelled.
+    backend.expectOne(`${BASE}/`).flush({ detail: 'boom' }, { status: 500, statusText: 'Error' });
+    fixture.detectChanges();
+    // Tearing the sibling subscriptions down is not synchronous, so without this
+    // afterEach's verify() would still see them as open.
+    await fixture.whenStable();
+
+    // The two siblings were cancelled, but the testing backend still lists
+    // cancelled requests as open, so drain them explicitly.
+    const cancelled = backend.match(() => true).filter((request) => request.cancelled);
+    expect(cancelled.length).toBe(2);
+
+    expect(text()).toContain('We could not load this page');
+    expect(root().querySelector('button')?.textContent).toContain('Try again');
+  });
+
+  it('never renders a customer or organization picker', async () => {
+    await create();
+    flushCatalogue();
+
+    // The visitor chooses a service, a person and a time. Identity is not
+    // theirs to supply, so there must be no control that could suggest it is.
+    const selects = root().querySelectorAll('select');
+    expect(selects.length).toBe(0);
+
+    const labels = Array.from(root().querySelectorAll('label')).map(
+      (node) => node.textContent?.toLowerCase() ?? '',
+    );
+    expect(labels.join(' ')).not.toContain('customer');
+    expect(labels.join(' ')).not.toContain('organization');
+  });
+
+  it('shows no management navigation', async () => {
+    await create();
+    flushCatalogue();
+
+    const html = text().toLowerCase();
+    for (const forbidden of ['dashboard', 'customers', 'availability', 'sign out']) {
+      expect(html).not.toContain(forbidden);
     }
   });
 
-  it('offers staff a way into the workspace', () => {
-    const links = Array.from(root.querySelectorAll<HTMLAnchorElement>('a')).map(
+  it("links to sign in and to this organization's own registration page", async () => {
+    await create();
+    flushCatalogue();
+
+    const hrefs = Array.from(root().querySelectorAll('a')).map(
       (link) => link.getAttribute('href') ?? '',
     );
-    expect(links).toContain('/login');
-    expect(links).toContain('/register');
+
+    expect(hrefs.some((href) => href.startsWith('/login'))).toBe(true);
+    // Registration is scoped to the organization in the URL, so a visitor can
+    // never be offered a choice of organization to join.
+    expect(hrefs.some((href) => href.startsWith(`/book/${SLUG}/register`))).toBe(true);
+  });
+
+  it('posts a booking with no customer and no organization field', async () => {
+    tokens.setUser({
+      id: 9,
+      username: 'jane@example.test',
+      email: 'jane@example.test',
+      role: 'CUSTOMER',
+      organizationName: 'Acme Clinic',
+      organizationSlug: SLUG,
+    });
+    tokens.setTokens('access', 'refresh');
+
+    await create({ step: 'confirmation' });
+    flushCatalogue();
+
+    // Drive the draft the same way the earlier steps would have.
+    const component = fixture.componentInstance as unknown as {
+      draft: {
+        service: { set: (value: unknown) => void };
+        staff: { set: (value: unknown) => void };
+        date: { set: (value: string) => void };
+        startTime: { set: (value: string) => void };
+        endTime: { set: (value: string) => void };
+      };
+      confirm: () => void;
+    };
+    component.draft.service.set(SERVICES[0]);
+    component.draft.staff.set(STAFF[0]);
+    component.draft.date.set('2030-01-07');
+    component.draft.startTime.set('10:00:00');
+    component.draft.endTime.set('10:30:00');
+    fixture.detectChanges();
+
+    component.confirm();
+    fixture.detectChanges();
+
+    const request = backend.expectOne('/api/customer/bookings/');
+    expect(request.request.method).toBe('POST');
+
+    // The security-relevant assertion: the body carries only what a customer is
+    // allowed to choose. Both identity fields are absent, not merely ignored.
+    expect(request.request.body).toEqual({
+      service: 1,
+      staff: 1,
+      booking_date: '2030-01-07',
+      start_time: '10:00:00',
+      notes: '',
+    });
+    expect(request.request.body as Record<string, unknown>).not.toHaveProperty('customer');
+    expect(request.request.body as Record<string, unknown>).not.toHaveProperty('organization');
+    expect(request.request.body as Record<string, unknown>).not.toHaveProperty('status');
+
+    request.flush({
+      id: 55,
+      organization: 1,
+      customer: 9,
+      service: 1,
+      staff: 1,
+      booking_date: '2030-01-07',
+      start_time: '10:00:00',
+      end_time: '10:30:00',
+      status: 'PENDING',
+      notes: '',
+      created_at: '2030-01-01T00:00:00Z',
+      updated_at: '2030-01-01T00:00:00Z',
+    });
+    fixture.detectChanges();
+
+    expect(text()).toContain('Booking request received');
+  });
+
+  it('sends an anonymous visitor to sign in instead of booking', async () => {
+    await create({ step: 'confirmation' });
+    flushCatalogue();
+
+    const component = fixture.componentInstance as unknown as { confirm: () => void };
+    component.confirm();
+    fixture.detectChanges();
+    await fixture.whenStable();
+
+    // No booking request was made at all.
+    backend.expectNone('/api/customer/bookings/');
+    expect(router.url).toContain('/login');
+  });
+
+  it('renders the slots the server returned, marking taken ones unavailable', async () => {
+    await create({ step: 'date' });
+    flushCatalogue();
+
+    const component = fixture.componentInstance as unknown as {
+      draft: {
+        service: { set: (value: unknown) => void };
+        staff: { set: (value: unknown) => void };
+      };
+      onDateChange: (value: string) => void;
+    };
+    component.draft.service.set(SERVICES[0]);
+    component.draft.staff.set(STAFF[0]);
+    fixture.detectChanges();
+
+    component.onDateChange('2030-01-07');
+    fixture.detectChanges();
+
+    const request = backend.expectOne(
+      (req) => req.url === `${BASE}/availability/slots/` && req.method === 'GET',
+    );
+    expect(request.request.params.get('service')).toBe('1');
+    expect(request.request.params.get('staff')).toBe('1');
+    expect(request.request.params.get('date')).toBe('2030-01-07');
+
+    request.flush({
+      service: 1,
+      staff: 1,
+      date: '2030-01-07',
+      duration_minutes: 30,
+      working_hours: { staff: 1, weekday: 0, start_time: '09:00:00', end_time: '17:00:00' },
+      slots: [
+        { start: '09:00:00', end: '09:30:00', available: true, reason: null },
+        { start: '09:30:00', end: '10:00:00', available: false, reason: 'booked' },
+      ],
+    });
+    fixture.detectChanges();
+
+    const buttons = Array.from(root().querySelectorAll('ul li button'));
+    expect(buttons.length).toBe(2);
+
+    const free = buttons[0] as HTMLButtonElement;
+    const taken = buttons[1] as HTMLButtonElement;
+
+    expect(free.disabled).toBe(false);
+    expect(taken.disabled).toBe(true);
+    // Unavailable is conveyed in words, not by colour or a disabled style alone.
+    expect(taken.getAttribute('aria-label')).toContain('already booked');
+  });
+
+  it('says the staff member does not work that day rather than inventing times', async () => {
+    await create({ step: 'date' });
+    flushCatalogue();
+
+    const component = fixture.componentInstance as unknown as {
+      draft: {
+        service: { set: (value: unknown) => void };
+        staff: { set: (value: unknown) => void };
+      };
+      onDateChange: (value: string) => void;
+    };
+    component.draft.service.set(SERVICES[0]);
+    component.draft.staff.set(STAFF[0]);
+    fixture.detectChanges();
+
+    component.onDateChange('2030-01-08');
+    fixture.detectChanges();
+
+    backend
+      .expectOne((req) => req.url === `${BASE}/availability/slots/`)
+      .flush({
+        service: 1,
+        staff: 1,
+        date: '2030-01-08',
+        duration_minutes: 30,
+        working_hours: null,
+        slots: [],
+      });
+    fixture.detectChanges();
+
+    expect(text()).toContain('Not working on that day');
   });
 });

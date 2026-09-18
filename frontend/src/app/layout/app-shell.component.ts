@@ -14,8 +14,6 @@ import { AuthService } from '../core/services/auth.service';
 import { CapabilitiesService } from '../core/services/capabilities.service';
 import { ConfirmService } from '../core/services/confirm.service';
 import { initials } from '../core/utils/datetime';
-import { ConfirmHostComponent } from '../shared/components/confirm-host.component';
-import { ToastHostComponent } from '../shared/components/toast-host.component';
 import { SidebarComponent } from './sidebar.component';
 import { TopbarComponent } from './topbar.component';
 
@@ -30,13 +28,10 @@ import { TopbarComponent } from './topbar.component';
 @Component({
   selector: 'app-shell',
   changeDetection: ChangeDetectionStrategy.OnPush,
-  imports: [
-    RouterOutlet,
-    SidebarComponent,
-    TopbarComponent,
-    ToastHostComponent,
-    ConfirmHostComponent,
-  ],
+  // The toast and confirm hosts are mounted once in the root component so the
+  // customer portal and the auth screens get them too. Mounting them here as
+  // well would render two of each.
+  imports: [RouterOutlet, SidebarComponent, TopbarComponent],
   template: `
     <div class="min-h-dvh lg:pl-64">
       <div id="main-navigation">
@@ -67,9 +62,6 @@ import { TopbarComponent } from './topbar.component';
         </main>
       </div>
     </div>
-
-    <app-toast-host />
-    <app-confirm-host />
   `,
 })
 export class AppShellComponent {

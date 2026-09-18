@@ -1,0 +1,151 @@
+<app-auth-layout
+  headline="Book your appointments in a couple of taps."
+  blurb="Create an account to book with this business, keep track of upcoming appointments and cancel when your plans change."
+>
+  <div class="mx-auto w-full max-w-md">
+    <div class="mb-6">
+      <h1 class="text-2xl font-semibold tracking-tight text-slate-900">Create your account</h1>
+      <p class="mt-1 text-sm text-slate-600">
+        @if (organization(); as org) {
+          For {{ org.name }}
+        } @else {
+          For this organization
+        }
+      </p>
+    </div>
+
+    @if (errorMessage(); as message) {
+      <div
+        class="mb-4 flex items-start gap-2 rounded-lg border border-danger-200 bg-danger-50 p-3"
+        role="alert"
+      >
+        <app-icon name="alert" class="mt-0.5 size-4 shrink-0 text-danger-700" />
+        <p class="text-sm text-danger-800">{{ message }}</p>
+      </div>
+    }
+
+    <form [formGroup]="form" (ngSubmit)="onSubmit()" class="space-y-4" novalidate>
+      <app-field
+        label="Your name"
+        for="customer-register-name"
+        [error]="fieldError('name')"
+        [required]="true"
+      >
+        <input
+          id="customer-register-name"
+          type="text"
+          formControlName="name"
+          autocomplete="name"
+          placeholder="Jane Cooper"
+          class="form-control"
+          [class.form-control-invalid]="fieldError('name')"
+          [attr.aria-invalid]="fieldError('name') ? 'true' : null"
+        />
+      </app-field>
+
+      <app-field
+        label="Email"
+        for="customer-register-email"
+        [error]="fieldError('email')"
+        [required]="true"
+        hint="You will sign in with this address."
+      >
+        <input
+          id="customer-register-email"
+          type="email"
+          formControlName="email"
+          autocomplete="email"
+          autocapitalize="none"
+          spellcheck="false"
+          placeholder="you@example.com"
+          class="form-control"
+          [class.form-control-invalid]="fieldError('email')"
+          [attr.aria-invalid]="fieldError('email') ? 'true' : null"
+        />
+      </app-field>
+
+      <app-field
+        label="Phone"
+        for="customer-register-phone"
+        [error]="fieldError('phone')"
+        hint="Optional, in case the business needs to reach you."
+      >
+        <input
+          id="customer-register-phone"
+          type="tel"
+          formControlName="phone"
+          autocomplete="tel"
+          placeholder="00000 00000"
+          class="form-control"
+          [class.form-control-invalid]="fieldError('phone')"
+          [attr.aria-invalid]="fieldError('phone') ? 'true' : null"
+        />
+      </app-field>
+
+      <app-field
+        label="Password"
+        for="customer-register-password"
+        [error]="fieldError('password')"
+        [required]="true"
+        hint="At least 8 characters."
+      >
+        <div class="relative">
+          <input
+            id="customer-register-password"
+            [type]="showPassword() ? 'text' : 'password'"
+            formControlName="password"
+            autocomplete="new-password"
+            placeholder="••••••••"
+            class="form-control pr-11"
+            [class.form-control-invalid]="fieldError('password')"
+            [attr.aria-invalid]="fieldError('password') ? 'true' : null"
+          />
+          <button
+            type="button"
+            class="absolute inset-y-0 right-0 grid w-11 place-items-center text-slate-400 transition hover:text-slate-600"
+            [attr.aria-label]="showPassword() ? 'Hide password' : 'Show password'"
+            [attr.aria-pressed]="showPassword()"
+            (click)="togglePassword()"
+          >
+            <app-icon [name]="showPassword() ? 'eyeOff' : 'eye'" class="size-4" />
+          </button>
+        </div>
+      </app-field>
+
+      <app-field
+        label="Confirm password"
+        for="customer-register-confirm"
+        [error]="
+          passwordMismatch() ? 'The two passwords do not match.' : fieldError('confirmPassword')
+        "
+        [required]="true"
+      >
+        <input
+          id="customer-register-confirm"
+          [type]="showPassword() ? 'text' : 'password'"
+          formControlName="confirmPassword"
+          autocomplete="new-password"
+          placeholder="••••••••"
+          class="form-control"
+          [class.form-control-invalid]="passwordMismatch() || fieldError('confirmPassword')"
+          [attr.aria-invalid]="passwordMismatch() ? 'true' : null"
+        />
+      </app-field>
+
+      <app-button type="submit" block size="lg" [loading]="submitting()" [disabled]="submitting()">
+        {{ submitting() ? 'Creating account…' : 'Create account' }}
+      </app-button>
+    </form>
+
+    <p class="mt-6 text-center text-sm text-slate-600">
+      Already have an account?
+      <a
+        routerLink="/login"
+        [queryParams]="{ returnUrl: returnUrl }"
+        class="font-medium text-brand-700 underline underline-offset-2 hover:text-brand-800 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-brand-600"
+      >
+        Sign in
+      </a>
+    </p>
+  </div>
+</app-auth-layout>
