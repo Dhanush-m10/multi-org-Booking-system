@@ -99,7 +99,8 @@ export class BookingFormComponent {
 
   protected readonly form = this.fb.nonNullable.group({
     service: [null as number | null, [Validators.required]],
-    staff: [null as number | null, [Validators.required]],
+    // Starts disabled: there is no service yet, so there is nobody to pick.
+    staff: [{ value: null as number | null, disabled: true }, [Validators.required]],
     booking_date: [todayIso(), [Validators.required]],
     start_time: ['', [Validators.required]],
     customer: [null as number | null, [Validators.required]],
@@ -215,9 +216,16 @@ export class BookingFormComponent {
 
   /* -------------------------------- handlers ------------------------------- */
 
+  /**
+   * Each handler is the single source of truth for its field: it updates both
+   * the signal mirror (which drives the dependent `computed()`s) and the form
+   * control. Relying on `formControlName` to set the control from the DOM event
+   * while the handler set only the signal left the two out of step.
+   */
   protected onServiceChange(value: string): void {
     const id = value === '' ? null : Number(value);
     this.selectedServiceId.set(id);
+    this.form.controls.service.setValue(id);
     // A previously chosen staff member may not perform the new service, and the
     // slot grid depends on both.
     this.clearStaff();
@@ -227,12 +235,14 @@ export class BookingFormComponent {
   protected onStaffChange(value: string): void {
     const id = value === '' ? null : Number(value);
     this.selectedStaffId.set(id);
+    this.form.controls.staff.setValue(id);
     // Different person, different diary.
     this.clearTime();
   }
 
   protected onDateChange(value: string): void {
     this.selectedDate.set(value);
+    this.form.controls.booking_date.setValue(value);
     this.clearTime();
   }
 
@@ -246,7 +256,14 @@ export class BookingFormComponent {
   private clearStaff(): void {
     this.selectedStaffId.set(null);
     this.form.controls.staff.reset(null);
-    this.form.controls.staff.updateValueAndValidity();
+    // The staff picker is meaningless until a service is chosen. `[disabled]`
+    // on a `formControlName` element is ignored by the reactive-forms
+    // directive, so the control itself has to be disabled.
+    if (this.selectedServiceId() === null) {
+      this.form.controls.staff.disable();
+    } else {
+      this.form.controls.staff.enable();
+    }
   }
 
   private clearTime(): void {

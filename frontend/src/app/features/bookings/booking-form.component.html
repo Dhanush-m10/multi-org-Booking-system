@@ -82,7 +82,6 @@
       formControlName="staff"
       class="form-control"
       [class.form-control-invalid]="fieldError('staff')"
-      [disabled]="selectedServiceId() === null"
       (change)="onStaffChange($any($event.target).value)"
     >
       <option [ngValue]="null">
