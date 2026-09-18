@@ -174,7 +174,57 @@
 
       <!-- ==================== STEP 1: services ========================== -->
       @if (currentStep() === 'services') {
-        <h1 class="mb-1 text-xl font-semibold text-slate-900">What would you like to book?</h1>
+        <!-- Organization landing: who the visitor is booking with. Everything -->
+        <!-- here is the organization's own published public profile.          -->
+        @if (organization(); as org) {
+          <section
+            class="mb-6 rounded-card border border-slate-200 bg-white p-5 shadow-card"
+            aria-labelledby="organization-name"
+          >
+            <h1 id="organization-name" class="text-xl font-semibold text-slate-900">
+              {{ org.name }}
+            </h1>
+            <dl class="mt-3 flex flex-wrap gap-x-6 gap-y-2 text-sm">
+              @if (org.address) {
+                <div class="flex items-start gap-2">
+                  <dt class="sr-only">Address</dt>
+                  <app-icon name="building" class="mt-0.5 size-4 shrink-0 text-slate-400" />
+                  <dd class="text-slate-600">{{ org.address }}</dd>
+                </div>
+              }
+              @if (org.phone) {
+                <div class="flex items-center gap-2">
+                  <dt class="sr-only">Phone</dt>
+                  <app-icon name="phone" class="size-4 shrink-0 text-slate-400" />
+                  <dd>
+                    <a
+                      [href]="'tel:' + org.phone"
+                      class="text-slate-600 underline-offset-2 hover:text-indigo-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                    >
+                      {{ org.phone }}
+                    </a>
+                  </dd>
+                </div>
+              }
+              @if (org.email) {
+                <div class="flex min-w-0 items-center gap-2">
+                  <dt class="sr-only">Email</dt>
+                  <app-icon name="mail" class="size-4 shrink-0 text-slate-400" />
+                  <dd class="min-w-0 truncate">
+                    <a
+                      [href]="'mailto:' + org.email"
+                      class="text-slate-600 underline-offset-2 hover:text-indigo-700 hover:underline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
+                    >
+                      {{ org.email }}
+                    </a>
+                  </dd>
+                </div>
+              }
+            </dl>
+          </section>
+        }
+
+        <h2 class="mb-1 text-lg font-semibold text-slate-900">What would you like to book?</h2>
         <p class="mb-5 text-sm text-slate-600">
           Choose a service to see who is available to provide it.
         </p>
@@ -362,9 +412,13 @@
                   [disabled]="!slot.available"
                   (click)="chooseSlot(slot)"
                   class="w-full rounded-lg border px-2 py-2.5 text-sm font-medium transition focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-indigo-600"
-                  [class.border-slate-200]="slot.available"
-                  [class.bg-white]="slot.available"
-                  [class.text-slate-800]="slot.available"
+                  [class.border-indigo-600]="draft.startTime() === slot.start"
+                  [class.bg-indigo-50]="draft.startTime() === slot.start"
+                  [class.text-indigo-800]="draft.startTime() === slot.start"
+                  [class.font-semibold]="draft.startTime() === slot.start"
+                  [class.border-slate-200]="slot.available && draft.startTime() !== slot.start"
+                  [class.bg-white]="slot.available && draft.startTime() !== slot.start"
+                  [class.text-slate-800]="slot.available && draft.startTime() !== slot.start"
                   [class.hover:border-indigo-400]="slot.available"
                   [class.hover:text-indigo-700]="slot.available"
                   [class.border-slate-100]="!slot.available"
@@ -372,10 +426,13 @@
                   [class.text-slate-400]="!slot.available"
                   [class.line-through]="!slot.available"
                   [class.cursor-not-allowed]="!slot.available"
+                  [attr.aria-current]="draft.startTime() === slot.start ? 'true' : null"
                   [attr.aria-label]="
-                    slot.available
-                      ? 'Book ' + formatTime(slot.start)
-                      : formatTime(slot.start) + ' is already booked'
+                    !slot.available
+                      ? formatTime(slot.start) + ' is already booked'
+                      : draft.startTime() === slot.start
+                        ? formatTime(slot.start) + ', currently selected'
+                        : 'Book ' + formatTime(slot.start)
                   "
                 >
                   {{ formatTime(slot.start) }}

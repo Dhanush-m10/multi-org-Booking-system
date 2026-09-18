@@ -17,6 +17,7 @@ from django.utils.dateparse import parse_date
 from rest_framework import generics, status
 from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
+from rest_framework.throttling import ScopedRateThrottle
 from rest_framework.views import APIView
 
 from availability.models import WorkingHours
@@ -38,6 +39,18 @@ class PublicOrganizationMixin:
     """Resolves the organization from the URL slug and scopes every query to it."""
 
     permission_classes = [AllowAny]
+
+    # These are the only unauthenticated endpoints in the API, so they are the
+    # only ones that need rate limiting. Scoped throttling keys on the client IP
+    # for anonymous callers; the rates live in
+    # `REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]` and are configurable through
+    # THROTTLE_PUBLIC_ORGANIZATION / THROTTLE_PUBLIC_AVAILABILITY.
+    #
+    # Authenticated management endpoints are deliberately not throttled here:
+    # a signed-in organization legitimately issues bursts of requests, and its
+    # identity is already known.
+    throttle_classes = [ScopedRateThrottle]
+    throttle_scope = "public_organization"
 
     def get_organization(self):
         # get_object_or_404 rather than a filter on a request-supplied id: the
@@ -110,6 +123,10 @@ class PublicAvailabilitySlotsView(PublicOrganizationMixin, APIView):
     No fake slots: if there are no working hours for that weekday, the service
     does not fit, or the day is fully booked, the slot list is empty.
     """
+
+    # Tighter limit than the plain reads: this endpoint runs three queries and
+    # recomputes the whole day's slots on every call.
+    throttle_scope = "public_availability"
 
     def get(self, request, slug):
         organization = self.get_organization()

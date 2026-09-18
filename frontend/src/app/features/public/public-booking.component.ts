@@ -180,6 +180,28 @@ export class PublicBookingComponent {
         this.load(slug);
       });
     });
+
+    // The wizard's steps are separate routes that share one component instance,
+    // so navigating between them changes `step` without re-running the
+    // constructor. The slot list is deliberately NOT part of the draft (it is
+    // derived data that goes stale the moment someone else books), so returning
+    // to the date step — browser Back from the confirmation screen, or the
+    // "Change time" button — would otherwise render an empty list and report
+    // "no times left" for a day that is actually free.
+    //
+    // Reading only `currentStep()` keeps this effect from re-triggering on its
+    // own writes; the draft signals are read inside `untracked`.
+    effect(() => {
+      if (this.currentStep() !== 'date') {
+        return;
+      }
+      untracked(() => {
+        const date = this.draft.date();
+        if (date && !this.slotsLoading() && this.slots().length === 0) {
+          this.loadSlots(date);
+        }
+      });
+    });
   }
 
   /* ------------------------------- loading -------------------------------- */
@@ -267,7 +289,6 @@ export class PublicBookingComponent {
     }
     this.loadSlots(value);
   }
-
   private loadSlots(date: string): void {
     const service = this.draft.service();
     const staffMember = this.draft.staff();

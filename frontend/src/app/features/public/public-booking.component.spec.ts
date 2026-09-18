@@ -5,6 +5,7 @@ import { ComponentFixture, TestBed } from '@angular/core/testing';
 import { Router, provideRouter } from '@angular/router';
 
 import { PublicBookingComponent } from './public-booking.component';
+import { BookingDraftService } from '../../core/services/booking-draft.service';
 import { TokenService } from '../../core/services/token.service';
 
 @Component({ selector: 'app-test-page', template: '' })
@@ -202,6 +203,77 @@ describe('PublicBookingComponent', () => {
 
     expect(text()).toContain('We could not load this page');
     expect(root().querySelector('button')?.textContent).toContain('Try again');
+  });
+
+  it('shows the organization public profile on the landing step', async () => {
+    await create();
+    flushCatalogue();
+
+    const html = text();
+    expect(html).toContain('Acme Clinic');
+    expect(html).toContain('1 Test Street');
+    expect(html).toContain('0000000000');
+
+    // Contact details are links a visitor can actually use.
+    const hrefs = Array.from(root().querySelectorAll('a')).map((a) =>
+      a.getAttribute('href'),
+    );
+    expect(hrefs).toContain('tel:0000000000');
+    expect(hrefs).toContain('mailto:hello@acme.test');
+  });
+
+  it('exposes no internal identifier in the organization block', async () => {
+    await create();
+    flushCatalogue();
+
+    const section = root().querySelector('section[aria-labelledby="organization-name"]');
+    expect(section).not.toBeNull();
+    // The public serializer has no id field; the slug is the public handle and
+    // even that is only in the URL, not rendered as data.
+    expect(section?.textContent).not.toContain('"id"');
+    expect(section?.textContent?.trim()).not.toContain(ORG.slug);
+  });
+
+  it('refetches slots when returning to the date step instead of claiming none are left', async () => {
+    // Simulate a visitor who already picked a time and pressed Back from the
+    // confirmation screen. The slot list is derived data and is not part of the
+    // draft, so it must be requested again rather than reported as empty.
+    const draft = TestBed.inject(BookingDraftService);
+    draft.begin(SLUG);
+    draft.service.set(SERVICES[0]);
+    draft.staff.set(STAFF[0]);
+    draft.date.set('2030-01-07');
+    draft.startTime.set('09:30:00');
+
+    await create({ step: 'date' });
+    flushCatalogue();
+
+    backend
+      .expectOne((req) => req.url === `${BASE}/availability/slots/`)
+      .flush({
+        service: 1,
+        staff: 1,
+        date: '2030-01-07',
+        duration_minutes: 30,
+        working_hours: { staff: 1, weekday: 0, start_time: '09:00:00', end_time: '17:00:00' },
+        slots: [
+          { start: '09:00:00', end: '09:30:00', available: true, reason: null },
+          { start: '09:30:00', end: '10:00:00', available: true, reason: null },
+        ],
+      });
+    fixture.detectChanges();
+
+    expect(text()).not.toContain('No times left on that day');
+
+    const buttons = Array.from(root().querySelectorAll('ul li button'));
+    const chosen = buttons[1] as HTMLButtonElement;
+    const other = buttons[0] as HTMLButtonElement;
+
+    // Selected state is conveyed in the accessibility tree as well as visually,
+    // never by colour alone.
+    expect(chosen.getAttribute('aria-current')).toBe('true');
+    expect(chosen.getAttribute('aria-label')).toContain('currently selected');
+    expect(other.getAttribute('aria-current')).toBeNull();
   });
 
   it('never renders a customer or organization picker', async () => {

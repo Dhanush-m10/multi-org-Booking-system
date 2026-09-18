@@ -5,7 +5,20 @@ nothing private is exposed, that a slug can never surface another
 organization's data, and that availability slots are real.
 """
 
+from unittest import mock
+
+from django.conf import settings
+from django.core.cache import cache
 from rest_framework.test import APITestCase
+from rest_framework.throttling import ScopedRateThrottle
+
+from .views import (
+    PublicAvailabilitySlotsView,
+    PublicOrganizationDetailView,
+    PublicServiceListView,
+    PublicStaffListView,
+    PublicWorkingHoursListView,
+)
 
 from bookings.models import Booking
 from fixtures import (
@@ -306,3 +319,84 @@ class PublicSlotsTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 404)
+
+
+class PublicThrottlingTests(APITestCase):
+    """
+    The public endpoints are the only unauthenticated ones, so they are the only
+    ones rate limited.
+
+    The suite runs with throttle rates disabled (`TESTING` in settings), so the
+    functional test below applies a real rate through `override_settings` and
+    clears the throttle cache either side.
+    """
+
+    def setUp(self):
+        self.org = create_organization("Acme Clinic")
+        self.url = f"/api/public/organizations/{self.org.slug}/"
+        cache.clear()
+
+    def tearDown(self):
+        cache.clear()
+
+    @staticmethod
+    def with_rates(rate):
+        """
+        Apply a real rate for the duration of a block.
+
+        `override_settings(REST_FRAMEWORK=...)` is NOT enough: DRF copies
+        `DEFAULT_THROTTLE_RATES` onto `SimpleRateThrottle.THROTTLE_RATES` when
+        the class is defined, so the throttle keeps reading the original dict.
+        Patching that attribute is what actually changes the limit.
+        """
+        return mock.patch.object(
+            ScopedRateThrottle,
+            "THROTTLE_RATES",
+            {"public_organization": rate, "public_availability": rate},
+        )
+
+    def test_every_public_view_declares_a_throttle_scope(self):
+        for view in (
+            PublicOrganizationDetailView,
+            PublicServiceListView,
+            PublicStaffListView,
+            PublicWorkingHoursListView,
+            PublicAvailabilitySlotsView,
+        ):
+            with self.subTest(view=view.__name__):
+                self.assertIn(ScopedRateThrottle, view.throttle_classes)
+                self.assertTrue(view.throttle_scope)
+
+    def test_every_declared_scope_has_a_configured_rate(self):
+        # A scope with no entry in DEFAULT_THROTTLE_RATES makes DRF raise
+        # ImproperlyConfigured on the first request, so this is a real guard.
+        configured = settings.REST_FRAMEWORK["DEFAULT_THROTTLE_RATES"]
+
+        for view in (PublicOrganizationDetailView, PublicAvailabilitySlotsView):
+            self.assertIn(view.throttle_scope, configured)
+
+    def test_the_slots_endpoint_uses_a_tighter_scope(self):
+        self.assertEqual(
+            PublicOrganizationDetailView.throttle_scope, "public_organization"
+        )
+        self.assertEqual(
+            PublicAvailabilitySlotsView.throttle_scope, "public_availability"
+        )
+
+    def test_exceeding_the_rate_returns_429(self):
+        with self.with_rates("3/min"):
+            codes = [self.client.get(self.url).status_code for _ in range(5)]
+
+        self.assertEqual(codes[:3], [200, 200, 200])
+        self.assertEqual(codes[3], 429)
+        self.assertEqual(codes[4], 429)
+
+    def test_management_endpoints_are_not_scoped(self):
+        # Authenticated organization traffic is identified by token, not IP, and
+        # legitimately arrives in bursts, so it must not inherit these limits.
+        from bookings.customer_views import CustomerBookingListCreateView
+        from bookings.views import BookingListCreateView
+
+        for view in (BookingListCreateView, CustomerBookingListCreateView):
+            with self.subTest(view=view.__name__):
+                self.assertNotIn(ScopedRateThrottle, getattr(view, "throttle_classes", []))
