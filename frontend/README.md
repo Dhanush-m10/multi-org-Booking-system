@@ -24,12 +24,12 @@ python manage.py runserver
 
 Useful scripts:
 
-| Command                                         | What it does                                |
-| ----------------------------------------------- | ------------------------------------------- |
-| `npm start`                                     | Dev server with HMR + the API proxy         |
-| `npm run build`                                 | Production bundle → `dist/frontend/browser` |
-| `npm test`                                      | Unit tests (Vitest, 49 specs)               |
-| `npx prettier --write "src/**/*.{ts,html,css}"` | Format                                      |
+| Command                                         | What it does                                    |
+| ----------------------------------------------- | ----------------------------------------------- |
+| `npm start`                                     | Dev server with HMR + the API proxy             |
+| `npm run build`                                 | Production bundle → `dist/frontend/browser`     |
+| `npm test`                                      | Unit tests (Vitest — 111 tests across 13 files) |
+| `npx prettier --write "src/**/*.{ts,html,css}"` | Format                                          |
 
 ---
 
